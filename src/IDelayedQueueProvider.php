@@ -1,7 +1,7 @@
 <?php
 namespace Packaged\Queue;
 
-interface DelayedQueueProviderInterface extends QueueProviderInterface
+interface IDelayedQueueProvider extends IQueueProvider
 {
   public function delayedPush($data, $delay);
 }

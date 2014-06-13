@@ -1,7 +1,7 @@
 <?php
 namespace Packaged\Queue;
 
-interface QueueProviderInterface
+interface IQueueProvider
 {
   public function push($data);
 
