@@ -136,11 +136,6 @@ class AmqpQueueProvider extends AbstractQueueProvider
     return true;
   }
 
-  public function batchConsume(callable $callback, $batchSize)
-  {
-    parent::batchConsume($callback, $batchSize);
-  }
-
   protected function _processBatchMessage($msg, $tag = null)
   {
     $this->_batchData[$tag] = $msg;
@@ -271,7 +266,10 @@ class AmqpQueueProvider extends AbstractQueueProvider
     // check time of last connection
     if((time() - $this->_lastConnectTime) >= $this->_reconnectInterval)
     {
-      $this->_log('Connection refresh');
+      if($this->_connection)
+      {
+        $this->_log('Connection refresh');
+      }
       $this->disconnect();
     }
   }
