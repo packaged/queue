@@ -5,5 +5,7 @@ interface IQueueProvider
 {
   public function push($data);
 
-  public function consume();
+  public function consume(callable $callback);
+
+  public function batchConsume(callable $callback, $batchSize);
 }
