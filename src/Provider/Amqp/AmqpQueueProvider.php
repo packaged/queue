@@ -314,13 +314,14 @@ class AmqpQueueProvider extends AbstractQueueProvider
       {
         $this->_getHosts();
         $host = reset($this->_hosts);
+        $config = $this->config();
         try
         {
           $this->_connection = new AMQPStreamConnection(
             $host,
-            $this->config()->getItem('port', 5672),
-            $this->config()->getItem('username', 'guest'),
-            $this->config()->getItem('password', 'guest')
+            $config->getItem('port', 5672),
+            $config->getItem('username', 'guest'),
+            $config->getItem('password', 'guest')
           );
         }
         catch(\Exception $e)
@@ -328,7 +329,7 @@ class AmqpQueueProvider extends AbstractQueueProvider
           $this->_log('AMQP host failed to connect (' . $host . ')');
           array_shift($this->_hosts);
         }
-        $this->_persistentDefault = (bool)$this->config()->getItem(
+        $this->_persistentDefault = (bool)$config->getItem(
           'persistent',
           false
         );
@@ -390,29 +391,31 @@ class AmqpQueueProvider extends AbstractQueueProvider
 
   public function declareQueue()
   {
+    $config = $this->config();
     $this->_getChannel()->queue_declare(
       $this->_getQueueName(),
-      (bool)$this->config()->getItem('queue_passive', false),
-      (bool)$this->config()->getItem('queue_durable', true),
-      (bool)$this->config()->getItem('queue_exclusive', false),
-      (bool)$this->config()->getItem('queue_autodelete', false),
-      (bool)$this->config()->getItem('queue_nowait', false),
-      (array)$this->config()->getItem('queue_args', null)
+      (bool)$config->getItem('queue_passive', false),
+      (bool)$config->getItem('queue_durable', true),
+      (bool)$config->getItem('queue_exclusive', false),
+      (bool)$config->getItem('queue_autodelete', false),
+      (bool)$config->getItem('queue_nowait', false),
+      (array)$config->getItem('queue_args', null)
     );
     return $this;
   }
 
   public function declareExchange()
   {
+    $config = $this->config();
     $this->_getChannel()->exchange_declare(
       $this->_getExchangeName(),
-      (string)$this->config()->getItem('exchange_type', 'direct'),
-      (bool)$this->config()->getItem('exchange_passive', false),
-      (bool)$this->config()->getItem('exchange_durable', true),
-      (bool)$this->config()->getItem('exchange_autodelete', false),
-      (bool)$this->config()->getItem('exchange_internal', false),
-      (bool)$this->config()->getItem('exchange_nowait', false),
-      (array)$this->config()->getItem('exchange_args', null)
+      (string)$config->getItem('exchange_type', 'direct'),
+      (bool)$config->getItem('exchange_passive', false),
+      (bool)$config->getItem('exchange_durable', true),
+      (bool)$config->getItem('exchange_autodelete', false),
+      (bool)$config->getItem('exchange_internal', false),
+      (bool)$config->getItem('exchange_nowait', false),
+      (array)$config->getItem('exchange_args', null)
     );
     return $this;
   }
