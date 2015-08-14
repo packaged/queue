@@ -44,6 +44,8 @@ class AmqpQueueProvider extends AbstractQueueProvider
   protected $_reconnectInterval = 1800;
   protected $_lastConnectTime = 0;
 
+  protected $_qosCount;
+
   /**
    * @var AMQPMessage[]
    */
@@ -347,6 +349,14 @@ class AmqpQueueProvider extends AbstractQueueProvider
     if($this->_channel === null)
     {
       $this->_channel = $this->_getConnection()->channel();
+      $config = $this->config();
+      if($config->has('qos_count') || $config->has('qos_size'))
+      {
+        $this->setPrefetch(
+          $config->getItem('qos_count', 0),
+          $config->getItem('qos_size', 0)
+        );
+      }
     }
     return $this->_channel;
   }
@@ -383,8 +393,18 @@ class AmqpQueueProvider extends AbstractQueueProvider
     $this->_exchange = null;
   }
 
+  public function batchConsume(callable $callback, $batchSize)
+  {
+    if($this->_qosCount && $batchSize > $this->_qosCount)
+    {
+      throw new \Exception('Cannot consume batches greater than QoS');
+    }
+    parent::batchConsume($callback, $batchSize);
+  }
+
   public function setPrefetch($count, $size = 0)
   {
+    $this->_qosCount = $count;
     $this->_getChannel()->basic_qos($size, $count, false);
     return $this;
   }

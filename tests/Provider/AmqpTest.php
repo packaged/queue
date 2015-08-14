@@ -1,6 +1,8 @@
 <?php
 namespace Packaged\Queue\Tests;
 
+use Packaged\Config\ConfigSectionInterface;
+use Packaged\Config\Provider\ConfigSection;
 use Packaged\Queue\Provider\Amqp\AmqpQueueProvider;
 
 class AmqpTest extends \PHPUnit_Framework_TestCase
@@ -24,12 +26,12 @@ class AmqpTest extends \PHPUnit_Framework_TestCase
 
   public function testBatchAck()
   {
-    $q = AmqpQueueProvider::create('test.batch.ack')
+    $config = new ConfigSection('', ['wait_time' => 1, 'qos_count' => 250]);
+    $q = $this->_getQueue('test.batch.ack', $config)
       ->declareExchange()
       ->declareQueue()
       ->bindQueue()
       ->purge();
-    $q->config()->addItem('wait_time', 1);
 
     $total = 1000;
 
@@ -68,12 +70,12 @@ class AmqpTest extends \PHPUnit_Framework_TestCase
 
   public function testBatchNack()
   {
-    $q = AmqpQueueProvider::create('test.batch.nack')
+    $config = new ConfigSection('', ['wait_time' => 1]);
+    $q = $this->_getQueue('test.batch.nack', $config)
       ->declareExchange()
       ->declareQueue()
       ->bindQueue()
       ->purge();
-    $q->config()->addItem('wait_time', 1);
 
     $total = 1000;
 
@@ -112,12 +114,12 @@ class AmqpTest extends \PHPUnit_Framework_TestCase
 
   public function testRequeue()
   {
-    $q = AmqpQueueProvider::create('test.batch.requeue')
+    $config = new ConfigSection('', ['wait_time' => 1]);
+    $q = $this->_getQueue('test.batch.requeue', $config)
       ->declareExchange()
       ->declareQueue()
       ->bindQueue()
       ->purge();
-    $q->config()->addItem('wait_time', 1);
 
     $total = 250;
 
@@ -156,5 +158,17 @@ class AmqpTest extends \PHPUnit_Framework_TestCase
       250
     );
     $this->assertEquals($total, $count);
+  }
+
+  protected function _getQueue(
+    $queueName, ConfigSectionInterface $config = null
+  )
+  {
+    $q = AmqpQueueProvider::create($queueName);
+    if($config)
+    {
+      $q->configure($config);
+    }
+    return $q;
   }
 }
