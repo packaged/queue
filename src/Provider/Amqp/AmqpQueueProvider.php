@@ -409,6 +409,11 @@ class AmqpQueueProvider extends AbstractQueueProvider
     return $this;
   }
 
+  public function getQosCount()
+  {
+    return $this->_qosCount;
+  }
+
   public function declareQueue()
   {
     $config = $this->config();
