@@ -216,6 +216,11 @@ class AmqpQueueProvider extends AbstractQueueProvider
 
   public function batchAck(array $tagResults, $requeueFailures = false)
   {
+    if(count($tagResults) < 1)
+    {
+      return;
+    }
+
     $channel = $this->_getChannel();
     $lastTag = null;
     // optimise ack/nack

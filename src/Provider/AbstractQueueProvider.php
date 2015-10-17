@@ -87,8 +87,11 @@ abstract class AbstractQueueProvider
         break;
       }
     }
-    $callback($this->_batchData);
-    $this->_batchData = [];
+    if(count($this->_batchData) > 0)
+    {
+      $callback($this->_batchData);
+      $this->_batchData = [];
+    }
   }
 
   protected function _processBatchMessage($msg)
