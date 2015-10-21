@@ -44,7 +44,16 @@ class AmqpQueueProvider extends AbstractQueueProvider
   protected $_reconnectInterval = 1800;
   protected $_lastConnectTime = 0;
 
-  protected $_qosCount;
+  /**
+   * Saved QoS count for connection refresh
+   * @var null|int
+   */
+  protected $_qosCount = null;
+  /**
+   * Saved QoS size for connection refresh
+   * @var null|int
+   */
+  protected $_qosSize = null;
 
   /**
    * @var AMQPMessage[]
@@ -355,13 +364,10 @@ class AmqpQueueProvider extends AbstractQueueProvider
     {
       $this->_channel = $this->_getConnection()->channel();
       $config = $this->config();
-      if($config->has('qos_count') || $config->has('qos_size'))
-      {
-        $this->setPrefetch(
-          $config->getItem('qos_count', 0),
-          $config->getItem('qos_size', 0)
-        );
-      }
+
+      $qosSize = $this->_qosSize ?: $config->getItem('qos_size', 0);
+      $qosCount = $this->_qosCount ?: $config->getItem('qos_count', 0);
+      $this->setPrefetch($qosCount, $qosSize);
     }
     return $this->_channel;
   }
@@ -410,6 +416,7 @@ class AmqpQueueProvider extends AbstractQueueProvider
   public function setPrefetch($count, $size = 0)
   {
     $this->_qosCount = $count;
+    $this->_qosSize = $size;
     $this->_getChannel()->basic_qos($size, $count, false);
     return $this;
   }
