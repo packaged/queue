@@ -372,6 +372,9 @@ class AmqpQueueProvider extends AbstractQueueProvider
       }
       catch(\Exception $e)
       {
+        $this->_log(
+          'Error getting AMQP channel (' . $retries . ' retries remaining)'
+        );
         $this->disconnect();
         if(!($retries--))
         {
