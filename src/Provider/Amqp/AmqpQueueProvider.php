@@ -141,7 +141,6 @@ class AmqpQueueProvider extends AbstractQueueProvider
     }
     catch(AMQPTimeoutException $e)
     {
-      $this->_log('No message received in ' . $this->_getWaitTime() . 's');
       return false;
     }
     return true;
@@ -324,50 +323,61 @@ class AmqpQueueProvider extends AbstractQueueProvider
    */
   protected function _getConnection()
   {
-    if($this->_connection === null)
+    while($this->_connection === null)
     {
-      while(!$this->_connection)
+      $this->_getHosts();
+      $host = reset($this->_hosts);
+      $config = $this->config();
+      try
       {
-        $this->_getHosts();
-        $host = reset($this->_hosts);
-        $config = $this->config();
-        try
-        {
-          $this->_connection = new AMQPStreamConnection(
-            $host,
-            $config->getItem('port', 5672),
-            $config->getItem('username', 'guest'),
-            $config->getItem('password', 'guest')
-          );
-        }
-        catch(\Exception $e)
-        {
-          $this->_log('AMQP host failed to connect (' . $host . ')');
-          array_shift($this->_hosts);
-        }
-        $this->_persistentDefault = (bool)$config->getItem(
-          'persistent',
-          false
+        $this->_connection = new AMQPStreamConnection(
+          $host,
+          $config->getItem('port', 5672),
+          $config->getItem('username', 'guest'),
+          $config->getItem('password', 'guest')
         );
-        $this->_lastConnectTime = time();
       }
+      catch(\Exception $e)
+      {
+        $this->_log('AMQP host failed to connect (' . $host . ')');
+        array_shift($this->_hosts);
+      }
+      $this->_persistentDefault = (bool)$config->getItem(
+        'persistent',
+        false
+      );
+      $this->_lastConnectTime = time();
     }
     return $this->_connection;
   }
 
   /**
    * @return AMQPChannel
+   * @throws \Exception
    */
   protected function _getChannel()
   {
-    if($this->_channel === null)
+    $retries = 2;
+    while($this->_channel === null)
     {
-      $this->_channel = $this->_getConnection()->channel();
-      $config = $this->config();
+      $connection = $this->_getConnection();
+      try
+      {
+        $this->_channel = $connection->channel();
+        $config = $this->config();
 
-      $qosSize = $this->_qosSize ?: $config->getItem('qos_size', 0);
-      $qosCount = $this->_qosCount ?: $config->getItem('qos_count', 0);
-      $this->setPrefetch($qosCount, $qosSize);
+        $qosSize = $this->_qosSize ?: $config->getItem('qos_size', 0);
+        $qosCount = $this->_qosCount ?: $config->getItem('qos_count', 0);
+        $this->setPrefetch($qosCount, $qosSize);
+      }
+      catch(\Exception $e)
+      {
+        $this->disconnect();
+        if(!($retries--))
+        {
+          throw $e;
+        }
+      }
     }
     return $this->_channel;
   }

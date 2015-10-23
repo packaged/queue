@@ -83,7 +83,6 @@ abstract class AbstractQueueProvider
     {
       if(!$this->consume([$this, '_processBatchMessage']))
       {
-        $this->_log('No more messages in the queue');
         break;
       }
     }
