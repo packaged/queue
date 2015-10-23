@@ -423,7 +423,7 @@ class AmqpQueueProvider extends AbstractQueueProvider
     {
       throw new \Exception('Cannot consume batches greater than QoS');
     }
-    parent::batchConsume($callback, $batchSize);
+    return parent::batchConsume($callback, $batchSize);
   }
 
   public function setPrefetch($count, $size = 0)
