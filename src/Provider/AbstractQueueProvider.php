@@ -91,7 +91,9 @@ abstract class AbstractQueueProvider
     {
       $callback($this->_batchData);
       $this->_batchData = [];
+      return true;
     }
+    return false;
   }
 
   protected function _processBatchMessage($msg)
