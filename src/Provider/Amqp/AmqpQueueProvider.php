@@ -8,6 +8,7 @@ use PhpAmqpLib\Connection\AbstractConnection;
 use PhpAmqpLib\Connection\AMQPStreamConnection;
 use PhpAmqpLib\Exception\AMQPTimeoutException;
 use PhpAmqpLib\Message\AMQPMessage;
+use PhpAmqpLib\Wire\AMQPTable;
 
 class AmqpQueueProvider extends AbstractQueueProvider
   implements IBatchQueueProvider
@@ -449,7 +450,7 @@ class AmqpQueueProvider extends AbstractQueueProvider
       (bool)$config->getItem('queue_exclusive', false),
       (bool)$config->getItem('queue_autodelete', false),
       (bool)$config->getItem('queue_nowait', false),
-      (array)$config->getItem('queue_args', null)
+      new AMQPTable((array)$config->getItem('queue_args', null))
     );
     return $this;
   }
