@@ -13,11 +13,16 @@
   ],
   "require": {
     "php": ">=5.4.0",
-    "videlalvaro/php-amqplib": "~2.5",
     "packaged/config": "~1.1"
   },
+  "suggest": {
+    "videlalvaro/php-amqplib": "Enables using queues in RabbitMQ",
+    "google/apiclient": "Enables using queues in Google PubSub"
+  },
   "require-dev": {
-    "phpunit/phpunit": "~4.7"
+    "phpunit/phpunit": "~4.7",
+    "videlalvaro/php-amqplib": "~2.5",
+    "google/apiclient": "~1.0"
   },
   "autoload": {
     "psr-4": {
