@@ -351,9 +351,8 @@ class GooglePubSubProvider implements IBatchQueueProvider
               $response['pubsubEvent']['message']['data']
             )
           );
-
-          $callback($toProcess);
         }
+        $callback($toProcess);
       }
       catch(\Google_Service_Exception $e)
       {
@@ -382,16 +381,19 @@ class GooglePubSubProvider implements IBatchQueueProvider
 
   public function batchAck($results, $requeueFailures = true)
   {
-    if(!$requeueFailures)
+    if($requeueFailures)
     {
       $results = array_filter($results);
     }
     $ackIds = array_keys($results);
 
-    $body = new \Google_Service_Pubsub_AcknowledgeRequest();
-    $body->setSubscription($this->_getSubscription()->getName());
-    $body->setAckId($ackIds);
-    $this->_getPubSubService()->subscriptions->acknowledge($body);
+    if(count($results) > 0)
+    {
+      $body = new \Google_Service_Pubsub_AcknowledgeRequest();
+      $body->setSubscription($this->_getSubscription()->getName());
+      $body->setAckId($ackIds);
+      $this->_getPubSubService()->subscriptions->acknowledge($body);
+    }
   }
 
   /**
