@@ -11,7 +11,7 @@ php:
 before_script:
   - composer self-update
   - sleep 20
-  - composer install --no-interaction --prefer-source -o --no-dev
+  - composer install --no-interaction --prefer-source -o
 
 script:
  - phpunit -c phpunit.xml
