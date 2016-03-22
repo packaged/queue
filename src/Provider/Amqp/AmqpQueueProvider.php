@@ -213,6 +213,12 @@ class AmqpQueueProvider extends AbstractQueueProvider
     return $object;
   }
 
+  public function deleteQueueAndExchange()
+  {
+    $this->_getChannel()->queue_delete($this->_getQueueName());
+    $this->_getChannel()->exchange_delete($this->_getExchangeName());
+  }
+
   public function ack($deliveryTag)
   {
     $this->_getChannel()->basic_ack($deliveryTag, false);
