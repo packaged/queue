@@ -16,7 +16,7 @@
     "packaged/config": "~1.1"
   },
   "suggest": {
-    "videlalvaro/php-amqplib": "Enables using queues in RabbitMQ",
+    "php-amqplib/php-amqplib": "Enables using queues in RabbitMQ",
     "google/apiclient": "Enables using queues in Google PubSub"
   },
   "require-dev": {
