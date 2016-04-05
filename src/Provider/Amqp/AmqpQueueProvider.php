@@ -6,6 +6,7 @@ use Packaged\Queue\Provider\AbstractQueueProvider;
 use PhpAmqpLib\Channel\AMQPChannel;
 use PhpAmqpLib\Connection\AbstractConnection;
 use PhpAmqpLib\Connection\AMQPStreamConnection;
+use PhpAmqpLib\Exception\AMQPProtocolChannelException;
 use PhpAmqpLib\Exception\AMQPTimeoutException;
 use PhpAmqpLib\Message\AMQPMessage;
 use PhpAmqpLib\Wire\AMQPTable;
@@ -47,11 +48,13 @@ class AmqpQueueProvider extends AbstractQueueProvider
 
   /**
    * Saved QoS count for connection refresh
+   *
    * @var null|int
    */
   protected $_qosCount = null;
   /**
    * Saved QoS size for connection refresh
+   *
    * @var null|int
    */
   protected $_qosSize = null;
@@ -165,7 +168,7 @@ class AmqpQueueProvider extends AbstractQueueProvider
         '',
         [
           'content_type'  => 'application/json',
-          'delivery_mode' => $persistent
+          'delivery_mode' => $persistent,
         ]
       );
       self::$_messageCache[$persistent]->serialize_properties();
@@ -215,8 +218,8 @@ class AmqpQueueProvider extends AbstractQueueProvider
 
   public function deleteQueueAndExchange()
   {
-    $this->_getChannel()->queue_delete($this->_getQueueName());
-    $this->_getChannel()->exchange_delete($this->_getExchangeName());
+    $this->deleteQueue();
+    $this->deleteExchange();
   }
 
   public function ack($deliveryTag)
@@ -446,6 +449,29 @@ class AmqpQueueProvider extends AbstractQueueProvider
     return $this->_qosCount;
   }
 
+  public function getQueueInfo()
+  {
+    try
+    {
+      return $this->_getChannel()->queue_declare($this->_getQueueName(), true);
+    }
+    catch(AMQPProtocolChannelException $e)
+    {
+      // disconnect because the connection is now stale
+      $this->disconnect();
+      if($e->amqp_reply_code !== 404)
+      {
+        throw $e;
+      }
+    }
+    return false;
+  }
+
+  public function exists()
+  {
+    return (bool)$this->getQueueInfo();
+  }
+
   public function declareQueue()
   {
     $config = $this->config();
@@ -458,6 +484,12 @@ class AmqpQueueProvider extends AbstractQueueProvider
       (bool)$config->getItem('queue_nowait', false),
       new AMQPTable((array)$config->getItem('queue_args', null))
     );
+    return $this;
+  }
+
+  public function deleteQueue()
+  {
+    $this->_getChannel()->queue_delete($this->_getQueueName());
     return $this;
   }
 
@@ -474,6 +506,12 @@ class AmqpQueueProvider extends AbstractQueueProvider
       (bool)$config->getItem('exchange_nowait', false),
       (array)$config->getItem('exchange_args', null)
     );
+    return $this;
+  }
+
+  public function deleteExchange()
+  {
+    $this->_getChannel()->exchange_delete($this->_getExchangeName());
     return $this;
   }
 

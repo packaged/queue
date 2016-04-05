@@ -24,6 +24,16 @@ class AmqpTest extends \PHPUnit_Framework_TestCase
     );
   }
 
+  public function testQueueExists()
+  {
+    $q = AmqpQueueProvider::create('new_queue');
+    $this->assertFalse($q->exists());
+    $q->declareQueue();
+    $this->assertTrue($q->exists());
+    $q->deleteQueueAndExchange();
+    $this->assertFalse($q->exists());
+  }
+
   public function testBatchAck()
   {
     $config = new ConfigSection('', ['wait_time' => 1, 'qos_count' => 250]);
