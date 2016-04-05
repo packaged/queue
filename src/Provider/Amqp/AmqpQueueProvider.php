@@ -467,9 +467,9 @@ class AmqpQueueProvider extends AbstractQueueProvider
     return false;
   }
 
-  public function exists()
+  public function queueExists()
   {
-    return (bool)$this->getQueueInfo();
+    return $this->getQueueInfo() !== false;
   }
 
   public function declareQueue()
@@ -491,6 +491,29 @@ class AmqpQueueProvider extends AbstractQueueProvider
   {
     $this->_getChannel()->queue_delete($this->_getQueueName());
     return $this;
+  }
+
+  public function exchangeExists()
+  {
+    try
+    {
+      $this->_getChannel()->exchange_declare(
+        $this->_getExchangeName(),
+        (string)$this->config()->getItem('exchange_type', 'direct'),
+        true
+      );
+      return true;
+    }
+    catch(AMQPProtocolChannelException $e)
+    {
+      // disconnect because the connection is now stale
+      $this->disconnect();
+      if($e->amqp_reply_code !== 404)
+      {
+        throw $e;
+      }
+    }
+    return false;
   }
 
   public function declareExchange()

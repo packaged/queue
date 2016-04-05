@@ -27,11 +27,21 @@ class AmqpTest extends \PHPUnit_Framework_TestCase
   public function testQueueExists()
   {
     $q = AmqpQueueProvider::create('new_queue');
-    $this->assertFalse($q->exists());
+    $this->assertFalse($q->queueExists());
     $q->declareQueue();
-    $this->assertTrue($q->exists());
-    $q->deleteQueueAndExchange();
-    $this->assertFalse($q->exists());
+    $this->assertTrue($q->queueExists());
+    $q->deleteQueue();
+    $this->assertFalse($q->queueExists());
+  }
+
+  public function testExchangeExists()
+  {
+    $q = AmqpQueueProvider::create('new_queue_e', 'new_exchange');
+    $this->assertFalse($q->exchangeExists());
+    $q->declareExchange();
+    $this->assertTrue($q->exchangeExists());
+    $q->deleteExchange();
+    $this->assertFalse($q->exchangeExists());
   }
 
   public function testBatchAck()
