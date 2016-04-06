@@ -17,7 +17,7 @@ build:
         phpize;
         ./configure;
         make;
-        cp modules/xdebug.so /root/.phpenv/versions/5.6/lib/php/extensions/no-debug-non-zts-20100525;
+        make install;
         cd -;
       fi
     - composer self-update
