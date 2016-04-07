@@ -10,16 +10,15 @@ php:
 
 build:
   ci:
-    - if [ "$SHIPPABLE_PHP_VERSION" == 5.6 ]; then
-        wget https://xdebug.org/files/xdebug-2.4.0.tgz;
-        tar -xvzf xdebug-2.4.0.tgz;
-        cd xdebug-2.4.0;
-        phpize;
-        ./configure;
-        make;
-        make install;
-        cd -;
-      fi
+    -  if [ "$SHIPPABLE_PHP_VERSION" == 5.6 ]; then
+        /usr/local/bin/phpenv-install 5.6.18;
+        'eval "$(phpenv init -)"';
+        $HOME/.phpenv/bin/phpenv global 5.6.18;
+        php --version;
+        curl -s http://getcomposer.org/installer | php;
+        chmod +x composer.phar;
+        mv composer.phar $HOME/.phpenv/versions/5.6.18/bin/composer;
+        fi;
     - composer self-update
     - composer install --no-progress --no-interaction --prefer-source
     - vendor/phpunit/phpunit/phpunit --log-junit shippable/testresults/junit.xml --coverage-xml shippable/codecoverage -c phpunit.xml
