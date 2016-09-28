@@ -67,6 +67,15 @@ class AmqpQueueProvider extends AbstractQueueProvider
   private $_fixedConsumerCallback;
   protected $_consumerCallback;
 
+  /**
+   * This will be set to true the first time the consume() method is called.
+   * It is used to prevent the connection from being refreshed in the push()
+   * and pushBatch() methods.
+   *
+   * @var bool
+   */
+  private $_consumeMode = false;
+
   protected function _construct()
   {
     $this->_fixedConsumerCallback = [$this, 'consumerCallback'];
@@ -74,7 +83,10 @@ class AmqpQueueProvider extends AbstractQueueProvider
 
   public function pushBatch(array $batch, $persistent = null)
   {
-    $this->_refreshConnection();
+    if(!$this->_consumeMode)
+    {
+      $this->_refreshConnection();
+    }
     $channel = $this->_getChannel();
     $i = 0;
     foreach($batch as $data)
@@ -96,7 +108,10 @@ class AmqpQueueProvider extends AbstractQueueProvider
 
   public function push($data, $persistent = null)
   {
-    $this->_refreshConnection();
+    if(!$this->_consumeMode)
+    {
+      $this->_refreshConnection();
+    }
     $msg = $this->_getMessage($data, $persistent);
     $this->_getChannel()->basic_publish(
       $msg,
@@ -117,6 +132,7 @@ class AmqpQueueProvider extends AbstractQueueProvider
 
   public function consume(callable $callback)
   {
+    $this->_consumeMode = true;
     $this->_consumerCallback = $callback;
     $this->_refreshConnection();
     $channel = $this->_getChannel();
