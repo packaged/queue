@@ -14,6 +14,11 @@ use PhpAmqpLib\Wire\AMQPTable;
 class AmqpQueueProvider extends AbstractQueueProvider
   implements IBatchQueueProvider
 {
+  // connection types
+  const CONN_PUSH = 'push';
+  const CONN_CONSUME = 'consume';
+  const CONN_OTHER = 'other';
+
   protected $_hosts = [];
   protected $_hostsResetTime = null;
   protected $_hostsResetTimeMax = 300;
@@ -23,14 +28,14 @@ class AmqpQueueProvider extends AbstractQueueProvider
   protected $_waitTime;
 
   /**
-   * @var AbstractConnection
+   * @var AMQPStreamConnection[]
    */
-  protected $_connection;
+  protected $_connections = [];
 
   /**
-   * @var AMQPChannel
+   * @var AMQPChannel[]
    */
-  protected $_channel;
+  protected $_channels = [];
 
   protected $_exchangeName;
   protected $_routingKey;
@@ -44,7 +49,7 @@ class AmqpQueueProvider extends AbstractQueueProvider
    * @var int
    */
   protected $_reconnectInterval = 1800;
-  protected $_lastConnectTime = 0;
+  protected $_lastConnectTimes = [];
 
   /**
    * Saved QoS count for connection refresh
@@ -67,15 +72,6 @@ class AmqpQueueProvider extends AbstractQueueProvider
   private $_fixedConsumerCallback;
   protected $_consumerCallback;
 
-  /**
-   * This will be set to true the first time the consume() method is called.
-   * It is used to prevent the connection from being refreshed in the push()
-   * and pushBatch() methods.
-   *
-   * @var bool
-   */
-  private $_consumeMode = false;
-
   protected function _construct()
   {
     $this->_fixedConsumerCallback = [$this, 'consumerCallback'];
@@ -83,11 +79,8 @@ class AmqpQueueProvider extends AbstractQueueProvider
 
   public function pushBatch(array $batch, $persistent = null)
   {
-    if(!$this->_consumeMode)
-    {
-      $this->_refreshConnection();
-    }
-    $channel = $this->_getChannel();
+    $this->_refreshConnection(self::CONN_PUSH);
+    $channel = $this->_getChannel(self::CONN_PUSH);
     $i = 0;
     foreach($batch as $data)
     {
@@ -108,12 +101,9 @@ class AmqpQueueProvider extends AbstractQueueProvider
 
   public function push($data, $persistent = null)
   {
-    if(!$this->_consumeMode)
-    {
-      $this->_refreshConnection();
-    }
+    $this->_refreshConnection(self::CONN_PUSH);
     $msg = $this->_getMessage($data, $persistent);
-    $this->_getChannel()->basic_publish(
+    $this->_getChannel(self::CONN_PUSH)->basic_publish(
       $msg,
       $this->_getExchangeName(),
       $this->_getRoutingKey()
@@ -132,10 +122,9 @@ class AmqpQueueProvider extends AbstractQueueProvider
 
   public function consume(callable $callback)
   {
-    $this->_consumeMode = true;
     $this->_consumerCallback = $callback;
-    $this->_refreshConnection();
-    $channel = $this->_getChannel();
+    $this->_refreshConnection(self::CONN_CONSUME);
+    $channel = $this->_getChannel(self::CONN_CONSUME);
     $consumerId = $this->_getConsumerId();
     if(!isset($channel->callbacks[$consumerId]))
     {
@@ -215,7 +204,7 @@ class AmqpQueueProvider extends AbstractQueueProvider
 
   public function purge()
   {
-    $this->_getChannel()->queue_purge($this->_getQueueName());
+    $this->_getChannel(self::CONN_OTHER)->queue_purge($this->_getQueueName());
     return $this;
   }
 
@@ -240,12 +229,12 @@ class AmqpQueueProvider extends AbstractQueueProvider
 
   public function ack($deliveryTag)
   {
-    $this->_getChannel()->basic_ack($deliveryTag, false);
+    $this->_getChannel(self::CONN_CONSUME)->basic_ack($deliveryTag, false);
   }
 
   public function nack($deliveryTag, $requeueFailures = false)
   {
-    $this->_getChannel()->basic_reject($deliveryTag, $requeueFailures);
+    $this->_getChannel(self::CONN_CONSUME)->basic_reject($deliveryTag, $requeueFailures);
   }
 
   public function batchAck(array $tagResults, $requeueFailures = false)
@@ -255,7 +244,7 @@ class AmqpQueueProvider extends AbstractQueueProvider
       return;
     }
 
-    $channel = $this->_getChannel();
+    $channel = $this->_getChannel(self::CONN_CONSUME);
     $lastTag = null;
     // optimise ack/nack
     if(count(array_filter($tagResults)) >= (count($tagResults) / 2))
@@ -301,17 +290,22 @@ class AmqpQueueProvider extends AbstractQueueProvider
   /**
    * Reconnect periodically for safety
    * disconnect / reconnect after x time
+   *
+   * @param string $connectionMode
    */
-  protected function _refreshConnection()
+  protected function _refreshConnection($connectionMode)
   {
     // check time of last connection
-    if((time() - $this->_lastConnectTime) >= $this->_reconnectInterval)
+    $lastConnectTime = empty($this->_lastConnectTimes[$connectionMode])
+      ? 0 : $this->_lastConnectTimes[$connectionMode];
+
+    if((time() - $lastConnectTime) >= $this->_reconnectInterval)
     {
-      if($this->_connection)
+      if(!empty($this->_connections[$connectionMode]))
       {
-        $this->_log('Connection refresh');
+        $this->_log('Connection refresh: ' . $connectionMode);
       }
-      $this->disconnect();
+      $this->disconnect($connectionMode);
     }
   }
 
@@ -344,19 +338,20 @@ class AmqpQueueProvider extends AbstractQueueProvider
   }
 
   /**
+   * @param $connectionMode
+   *
    * @return AMQPStreamConnection
-   * @throws \Exception
    */
-  protected function _getConnection()
+  protected function _getConnection($connectionMode)
   {
-    while($this->_connection === null)
+    while(empty($this->_connections[$connectionMode]))
     {
       $this->_getHosts();
       $host = reset($this->_hosts);
       $config = $this->config();
       try
       {
-        $this->_connection = new AMQPStreamConnection(
+        $this->_connections[$connectionMode] = new AMQPStreamConnection(
           $host,
           $config->getItem('port', 5672),
           $config->getItem('username', 'guest'),
@@ -372,75 +367,107 @@ class AmqpQueueProvider extends AbstractQueueProvider
         'persistent',
         false
       );
-      $this->_lastConnectTime = time();
+      $this->_lastConnectTimes[$connectionMode] = time();
     }
-    return $this->_connection;
+    return $this->_connections[$connectionMode];
   }
 
   /**
+   * @param $connectionMode
+   *
    * @return AMQPChannel
    * @throws \Exception
    */
-  protected function _getChannel()
+  protected function _getChannel($connectionMode)
   {
     $retries = 2;
-    while($this->_channel === null)
+    while(empty($this->_channels[$connectionMode]))
     {
-      $connection = $this->_getConnection();
+      $connection = $this->_getConnection($connectionMode);
       try
       {
-        $this->_channel = $connection->channel();
+        $this->_channels[$connectionMode] = $connection->channel();
         $config = $this->config();
 
-        $qosSize = $this->_qosSize ?: $config->getItem('qos_size', 0);
-        $qosCount = $this->_qosCount ?: $config->getItem('qos_count', 0);
-        $this->setPrefetch($qosCount, $qosSize);
+        if($connectionMode == self::CONN_CONSUME)
+        {
+          $qosSize = $this->_qosSize ?: $config->getItem('qos_size', 0);
+          $qosCount = $this->_qosCount ?: $config->getItem('qos_count', 0);
+          $this->setPrefetch($qosCount, $qosSize);
+        }
       }
       catch(\Exception $e)
       {
         $this->_log(
           'Error getting AMQP channel (' . $retries . ' retries remaining)'
         );
-        $this->disconnect();
+        $this->disconnect($connectionMode);
         if(!($retries--))
         {
           throw $e;
         }
       }
     }
-    return $this->_channel;
+    return $this->_channels[$connectionMode];
   }
 
   public function __destruct()
   {
-    $this->disconnect();
+    $this->disconnectAll();
   }
 
-  public function disconnect()
+  public function disconnectAll()
+  {
+    // get list of connection modes that have been in use
+    $modes = array_unique(
+      array_merge(array_keys($this->_connections), array_keys($this->_channels))
+    );
+    foreach($modes as $mode)
+    {
+      $this->disconnect($mode);
+    }
+  }
+
+  public function disconnect($connectionMode = null)
+  {
+    if($connectionMode)
+    {
+      $this->_disconnect($connectionMode);
+    }
+    else
+    {
+      $this->disconnectAll();
+    }
+  }
+
+  private function _disconnect($connectionMode)
   {
     try
     {
-      if($this->_channel !== null && $this->_channel instanceof AMQPChannel)
+      if((!empty($this->_channels[$connectionMode]))
+        && ($this->_channels[$connectionMode] instanceof AMQPChannel)
+      )
       {
-        $this->_channel->close();
+        $this->_channels[$connectionMode]->close();
       }
     }
     catch(\Exception $e)
     {
     }
-    $this->_channel = null;
+    $this->_channels[$connectionMode] = null;
     try
     {
-      if($this->_connection !== null && $this->_connection instanceof AbstractConnection)
+      if((!empty($this->_connections[$connectionMode]))
+        && ($this->_connections[$connectionMode] instanceof AbstractConnection)
+      )
       {
-        $this->_connection->close();
+        $this->_connections[$connectionMode]->close();
       }
     }
     catch(\Exception $e)
     {
     }
-    $this->_connection = null;
-    $this->_exchange = null;
+    $this->_connections[$connectionMode] = null;
   }
 
   public function batchConsume(callable $callback, $batchSize)
@@ -456,7 +483,7 @@ class AmqpQueueProvider extends AbstractQueueProvider
   {
     $this->_qosCount = $count;
     $this->_qosSize = $size;
-    $this->_getChannel()->basic_qos($size, $count, false);
+    $this->_getChannel(self::CONN_CONSUME)->basic_qos($size, $count, false);
     return $this;
   }
 
@@ -469,12 +496,13 @@ class AmqpQueueProvider extends AbstractQueueProvider
   {
     try
     {
-      return $this->_getChannel()->queue_declare($this->_getQueueName(), true);
+      return $this->_getChannel(self::CONN_OTHER)
+        ->queue_declare($this->_getQueueName(), true);
     }
     catch(AMQPProtocolChannelException $e)
     {
       // disconnect because the connection is now stale
-      $this->disconnect();
+      $this->disconnect(self::CONN_OTHER);
       if($e->amqp_reply_code !== 404)
       {
         throw $e;
@@ -491,7 +519,7 @@ class AmqpQueueProvider extends AbstractQueueProvider
   public function declareQueue()
   {
     $config = $this->config();
-    $this->_getChannel()->queue_declare(
+    $this->_getChannel(self::CONN_OTHER)->queue_declare(
       $this->_getQueueName(),
       (bool)$config->getItem('queue_passive', false),
       (bool)$config->getItem('queue_durable', true),
@@ -505,7 +533,7 @@ class AmqpQueueProvider extends AbstractQueueProvider
 
   public function deleteQueue()
   {
-    $this->_getChannel()->queue_delete($this->_getQueueName());
+    $this->_getChannel(self::CONN_OTHER)->queue_delete($this->_getQueueName());
     return $this;
   }
 
@@ -513,7 +541,7 @@ class AmqpQueueProvider extends AbstractQueueProvider
   {
     try
     {
-      $this->_getChannel()->exchange_declare(
+      $this->_getChannel(self::CONN_OTHER)->exchange_declare(
         $this->_getExchangeName(),
         (string)$this->config()->getItem('exchange_type', 'direct'),
         true
@@ -523,7 +551,7 @@ class AmqpQueueProvider extends AbstractQueueProvider
     catch(AMQPProtocolChannelException $e)
     {
       // disconnect because the connection is now stale
-      $this->disconnect();
+      $this->disconnect(self::CONN_OTHER);
       if($e->amqp_reply_code !== 404)
       {
         throw $e;
@@ -535,7 +563,7 @@ class AmqpQueueProvider extends AbstractQueueProvider
   public function declareExchange()
   {
     $config = $this->config();
-    $this->_getChannel()->exchange_declare(
+    $this->_getChannel(self::CONN_OTHER)->exchange_declare(
       $this->_getExchangeName(),
       (string)$config->getItem('exchange_type', 'direct'),
       (bool)$config->getItem('exchange_passive', false),
@@ -550,13 +578,14 @@ class AmqpQueueProvider extends AbstractQueueProvider
 
   public function deleteExchange()
   {
-    $this->_getChannel()->exchange_delete($this->_getExchangeName());
+    $this->_getChannel(self::CONN_OTHER)
+      ->exchange_delete($this->_getExchangeName());
     return $this;
   }
 
   public function bindQueue()
   {
-    $this->_getChannel()->queue_bind(
+    $this->_getChannel(self::CONN_OTHER)->queue_bind(
       $this->_getQueueName(),
       $this->_getExchangeName(),
       $this->_getRoutingKey()
