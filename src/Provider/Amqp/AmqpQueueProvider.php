@@ -301,10 +301,6 @@ class AmqpQueueProvider extends AbstractQueueProvider
 
     if((time() - $lastConnectTime) >= $this->_reconnectInterval)
     {
-      if(!empty($this->_connections[$connectionMode]))
-      {
-        $this->_log('Connection refresh: ' . $connectionMode);
-      }
       $this->disconnect($connectionMode);
     }
   }
