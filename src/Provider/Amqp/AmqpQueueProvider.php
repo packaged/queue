@@ -72,9 +72,23 @@ class AmqpQueueProvider extends AbstractQueueProvider
   private $_fixedConsumerCallback;
   protected $_consumerCallback;
 
+  /**
+   * If this is >0 then a message will be logged each time a push takes longer
+   * than this number of milliseconds
+   *
+   * @var int
+   */
+  private $_slowPushThreshold = 0;
+
   protected function _construct()
   {
     $this->_fixedConsumerCallback = [$this, 'consumerCallback'];
+  }
+
+  public function setSlowPushThreshold($threshold)
+  {
+    $this->_slowPushThreshold = $threshold;
+    return $this;
   }
 
   public function pushBatch(array $batch, $persistent = null)
@@ -101,6 +115,7 @@ class AmqpQueueProvider extends AbstractQueueProvider
 
   public function push($data, $persistent = null)
   {
+    $startTime = microtime(true);
     $this->_refreshConnection(self::CONN_PUSH);
     $msg = $this->_getMessage($data, $persistent);
     $this->_getChannel(self::CONN_PUSH)->basic_publish(
@@ -108,6 +123,18 @@ class AmqpQueueProvider extends AbstractQueueProvider
       $this->_getExchangeName(),
       $this->_getRoutingKey()
     );
+    if($this->_slowPushThreshold > 0)
+    {
+      $duration = (microtime(true) - $startTime) * 1000;
+      if($duration > $this->_slowPushThreshold)
+      {
+        error_log(
+          'Slow push to queue ' . $this->_queueName . ' took '
+          . round($duration, 1) . 'ms'
+        );
+      }
+    }
+
     return $this;
   }
 
