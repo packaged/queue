@@ -41,6 +41,9 @@ class AmqpQueueProvider extends AbstractQueueProvider
   protected $_routingKey;
   protected $_exchange;
 
+  protected $_mandatoryFlag = null;
+  protected $_autoDeclare = null;
+
   protected $_persistentDefault = false;
 
   /**
@@ -93,36 +96,97 @@ class AmqpQueueProvider extends AbstractQueueProvider
 
   public function pushBatch(array $batch, $persistent = null)
   {
-    $this->_refreshConnection(self::CONN_PUSH);
-    $channel = $this->_getChannel(self::CONN_PUSH);
-    $i = 0;
-    foreach($batch as $data)
+    $mandatory = $this->_getMandatoryFlag();
+    $autoDeclare = $this->_getAutoDeclare();
+
+    $needRetry = true;
+    $needDeclare = false;
+    while($needRetry)
     {
-      $i++;
-      $channel->batch_basic_publish(
-        $this->_getMessage($data, $persistent),
-        $this->_getExchangeName(),
-        $this->_getRoutingKey()
-      );
-      if($i % 100 === 0)
+      $needRetry = false;
+
+      $this->_refreshConnection(self::CONN_PUSH);
+      $ch = $this->_getChannel(self::CONN_PUSH);
+
+      if($needDeclare)
       {
-        $channel->publish_batch();
+        $this->_log("Auto-declaring exchange and queue");
+        $this->declareExchange();
+        $this->declareQueue();
+        $this->bindQueue();
+      }
+
+      $exchangeName = $this->_getExchangeName();
+      $routingKey = $this->_getRoutingKey();
+
+      if($mandatory)
+      {
+        $ch->set_return_listener(
+          function (
+            $replyCode,
+            $replyText,
+            $exchange,
+            $routingKey,
+            $message
+          ) use (&$needRetry, &$needDeclare)
+          {
+            if($autoDeclare && ($replyCode == 312))
+            {
+              $needDeclare = true;
+              $needRetry = true;
+            }
+            else
+            {
+              throw new \Exception(
+                'Error pushing message to exchange ' . $exchange
+                . ' with routing key ' . $routingKey
+                . ' : (' . $replyCode . ') ' . $replyText,
+                $replyCode
+              );
+            }
+          }
+        );
+      }
+
+      foreach($batch as $data)
+      {
+        $ch->batch_basic_publish(
+          $this->_getMessage($data, $persistent),
+          $exchangeName,
+          $routingKey,
+          $mandatory
+        );
+      }
+
+      $ch->publish_batch();
+
+      try
+      {
+        $ch->wait_for_pending_acks_returns();
+      }
+      catch(\Exception $e)
+      {
+        $this->disconnectAll();
+        if($autoDeclare && ($e->getCode() == 404))
+        {
+          $needRetry = true;
+          $needDeclare = true;
+        }
+        else
+        {
+          throw $e;
+        }
       }
     }
-    $channel->publish_batch();
     return $this;
   }
 
   public function push($data, $persistent = null)
   {
     $startTime = microtime(true);
-    $this->_refreshConnection(self::CONN_PUSH);
-    $msg = $this->_getMessage($data, $persistent);
-    $this->_getChannel(self::CONN_PUSH)->basic_publish(
-      $msg,
-      $this->_getExchangeName(),
-      $this->_getRoutingKey()
-    );
+
+    $this->pushBatch([$data], $persistent);
+
     if($this->_slowPushThreshold > 0)
     {
       $duration = (microtime(true) - $startTime) * 1000;
@@ -134,7 +198,6 @@ class AmqpQueueProvider extends AbstractQueueProvider
         );
       }
     }
-
     return $this;
   }
 
@@ -217,6 +280,27 @@ class AmqpQueueProvider extends AbstractQueueProvider
       $this->_waitTime = $this->config()->getItem('wait_time', 30);
     }
     return $this->_waitTime;
+  }
+
+  protected function _getMandatoryFlag()
+  {
+    if($this->_mandatoryFlag === null)
+    {
+      $this->_mandatoryFlag = (bool)$this->config()->getItem('mandatory', true);
+    }
+    return $this->_mandatoryFlag;
+  }
+
+  protected function _getAutoDeclare()
+  {
+    if($this->_autoDeclare === null)
+    {
+      $this->_autoDeclare = (bool)$this->config()->getItem(
+        'auto_declare',
+        true
+      );
+    }
+    return $this->_autoDeclare;
   }
 
   protected function _getRoutingKey()
@@ -409,14 +493,20 @@ class AmqpQueueProvider extends AbstractQueueProvider
       $connection = $this->_getConnection($connectionMode);
       try
       {
-        $this->_channels[$connectionMode] = $connection->channel();
+        $channel = $connection->channel();
+        $this->_channels[$connectionMode] = $channel;
         $config = $this->config();
 
-        if($connectionMode == self::CONN_CONSUME)
+        switch($connectionMode)
         {
-          $qosSize = $this->_qosSize ?: $config->getItem('qos_size', 0);
-          $qosCount = $this->_qosCount ?: $config->getItem('qos_count', 0);
-          $this->setPrefetch($qosCount, $qosSize);
+          case self::CONN_CONSUME:
+            $qosSize = $this->_qosSize ?: $config->getItem('qos_size', 0);
+            $qosCount = $this->_qosCount ?: $config->getItem('qos_count', 0);
+            $this->setPrefetch($qosCount, $qosSize);
+            break;
+          case self::CONN_PUSH:
+            $channel->confirm_select();
+            break;
         }
       }
       catch(\Exception $e)
