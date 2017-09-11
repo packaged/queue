@@ -43,6 +43,7 @@ class AmqpQueueProvider extends AbstractQueueProvider
 
   protected $_mandatoryFlag = null;
   protected $_autoDeclare = null;
+  protected $_publishConfirm = null;
 
   protected $_persistentDefault = false;
 
@@ -98,9 +99,39 @@ class AmqpQueueProvider extends AbstractQueueProvider
   {
     $mandatory = $this->_getMandatoryFlag();
     $autoDeclare = $this->_getAutoDeclare();
+    $publishConfirm = $this->_getPublishConfirm();
 
     $needRetry = true;
     $needDeclare = false;
+
+    $returnCallback = null;
+    if($mandatory)
+    {
+      $returnCallback = function (
+        $replyCode,
+        $replyText,
+        $exchange,
+        $routingKey,
+        $message
+      ) use (&$needRetry, &$needDeclare, &$autoDeclare)
+      {
+        if($autoDeclare && ($replyCode == 312))
+        {
+          $needDeclare = true;
+          $needRetry = true;
+        }
+        else
+        {
+          throw new \Exception(
+            'Error pushing message to exchange ' . $exchange
+            . ' with routing key ' . $routingKey
+            . ' : (' . $replyCode . ') ' . $replyText,
+            $replyCode
+          );
+        }
+      };
+    }
+
     while($needRetry)
     {
       $needRetry = false;
@@ -119,33 +150,9 @@ class AmqpQueueProvider extends AbstractQueueProvider
       $exchangeName = $this->_getExchangeName();
       $routingKey = $this->_getRoutingKey();
 
-      if($mandatory)
+      if($mandatory && $returnCallback)
       {
-        $ch->set_return_listener(
-          function (
-            $replyCode,
-            $replyText,
-            $exchange,
-            $routingKey,
-            $message
-          ) use (&$needRetry, &$needDeclare)
-          {
-            if($autoDeclare && ($replyCode == 312))
-            {
-              $needDeclare = true;
-              $needRetry = true;
-            }
-            else
-            {
-              throw new \Exception(
-                'Error pushing message to exchange ' . $exchange
-                . ' with routing key ' . $routingKey
-                . ' : (' . $replyCode . ') ' . $replyText,
-                $replyCode
-              );
-            }
-          }
-        );
+        $ch->set_return_listener($returnCallback);
       }
 
       foreach($batch as $data)
@@ -160,21 +167,24 @@ class AmqpQueueProvider extends AbstractQueueProvider
 
       $ch->publish_batch();
 
-      try
+      if($publishConfirm || $mandatory)
       {
-        $ch->wait_for_pending_acks_returns();
-      }
-      catch(\Exception $e)
-      {
-        $this->disconnectAll();
-        if($autoDeclare && ($e->getCode() == 404))
+        try
         {
-          $needRetry = true;
-          $needDeclare = true;
+          $ch->wait_for_pending_acks_returns();
         }
-        else
+        catch(\Exception $e)
         {
-          throw $e;
+          $this->disconnectAll();
+          if($autoDeclare && ($e->getCode() == 404))
+          {
+            $needRetry = true;
+            $needDeclare = true;
+          }
+          else
+          {
+            throw $e;
+          }
         }
       }
     }
@@ -297,7 +307,19 @@ class AmqpQueueProvider extends AbstractQueueProvider
     {
       $this->_autoDeclare = (bool)$this->config()->getItem(
         'auto_declare',
-        true
+        false
+      );
+    }
+    return $this->_autoDeclare;
+  }
+
+  protected function _getPublishConfirm()
+  {
+    if($this->_publishConfirm === null)
+    {
+      $this->_publishConfirm = (bool)$this->config()->getItem(
+        'publish_confirm',
+        false
       );
     }
     return $this->_autoDeclare;
@@ -505,7 +527,10 @@ class AmqpQueueProvider extends AbstractQueueProvider
             $this->setPrefetch($qosCount, $qosSize);
             break;
           case self::CONN_PUSH:
-            $channel->confirm_select();
+            if($this->_getPublishConfirm())
+            {
+              $channel->confirm_select();
+            }
             break;
         }
       }
