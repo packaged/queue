@@ -432,7 +432,20 @@ class AmqpQueueProvider extends AbstractQueueProvider
     $lastConnectTime = empty($this->_lastConnectTimes[$connectionMode])
       ? 0 : $this->_lastConnectTimes[$connectionMode];
 
-    if((time() - $lastConnectTime) >= $this->_reconnectInterval)
+    $channel = isset($this->_channels[$connectionMode])
+      ? $this->_channels[$connectionMode] : null;
+
+    // Disconnect if the channel exists but the connection is broken,
+    // or if the connection has been open for too long
+    if(($channel &&
+        ((!$channel->getConnection())
+          || (!$channel->getConnection()->isConnected())
+        )
+      )
+      || (($lastConnectTime > 0)
+        && ((time() - $lastConnectTime) >= $this->_reconnectInterval)
+      )
+    )
     {
       $this->disconnect($connectionMode);
     }
