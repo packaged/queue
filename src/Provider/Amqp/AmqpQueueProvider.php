@@ -229,15 +229,42 @@ class AmqpQueueProvider extends AbstractQueueProvider
     if(!isset($channel->callbacks[$consumerId]))
     {
       // register callback for this consumer
-      $channel->basic_consume(
-        $this->_getQueueName(),
-        $consumerId,
-        false,
-        false,
-        false,
-        false,
-        $this->_fixedConsumerCallback
-      );
+      $retry = true;
+      $doneDeclare = false;
+      while($retry)
+      {
+        $retry = false;
+        try
+        {
+          $channel->basic_consume(
+            $this->_getQueueName(),
+            $consumerId,
+            false,
+            false,
+            false,
+            false,
+            $this->_fixedConsumerCallback
+          );
+        }
+        catch(AMQPProtocolChannelException $e)
+        {
+          if(($e->getCode() == 404)
+            && $this->_getAutoDeclare() && (!$doneDeclare)
+          )
+          {
+            // Attempt to auto-create the exchange and queue the first time we get a 404
+            $this->_refreshConnection(self::CONN_CONSUME);
+            $channel = $this->_getChannel(self::CONN_CONSUME);
+            $this->declareExchange()->declareQueue()->bindQueue();
+            $retry = true;
+            $doneDeclare = true;
+          }
+          else
+          {
+            throw $e;
+          }
+        }
+      }
     }
     else
     {
