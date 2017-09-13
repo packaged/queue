@@ -349,7 +349,7 @@ class AmqpQueueProvider extends AbstractQueueProvider
         false
       );
     }
-    return $this->_autoDeclare;
+    return $this->_publishConfirm;
   }
 
   protected function _getRoutingKey()
