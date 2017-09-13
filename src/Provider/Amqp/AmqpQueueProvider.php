@@ -564,7 +564,7 @@ class AmqpQueueProvider extends AbstractQueueProvider
           case self::CONN_CONSUME:
             $qosSize = $this->_qosSize ?: $config->getItem('qos_size', 0);
             $qosCount = $this->_qosCount ?: $config->getItem('qos_count', 0);
-            $this->setPrefetch($qosCount, $qosSize);
+            $this->_setPrefetch($channel, $qosCount, $qosSize);
             break;
           case self::CONN_PUSH:
             if($this->_getPublishConfirm())
@@ -659,9 +659,18 @@ class AmqpQueueProvider extends AbstractQueueProvider
 
   public function setPrefetch($count, $size = 0)
   {
+    return $this->_setPrefetch(
+      $this->_getChannel(self::CONN_CONSUME),
+      $count,
+      $size
+    );
+  }
+
+  protected function _setPrefetch(AMQPChannel $channel, $count, $size = 0)
+  {
     $this->_qosCount = $count;
     $this->_qosSize = $size;
-    $this->_getChannel(self::CONN_CONSUME)->basic_qos($size, $count, false);
+    $channel->basic_qos($size, $count, false);
     return $this;
   }
 
