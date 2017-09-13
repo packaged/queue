@@ -45,6 +45,8 @@ class AmqpQueueProvider extends AbstractQueueProvider
   protected $_autoDeclare = null;
   protected $_publishConfirm = null;
 
+  protected $_pushTimeout = 0;
+
   protected $_persistentDefault = false;
 
   /**
@@ -170,7 +172,7 @@ class AmqpQueueProvider extends AbstractQueueProvider
       {
         try
         {
-          $ch->wait_for_pending_acks_returns();
+          $ch->wait_for_pending_acks_returns($this->_getPushTimeout());
         }
         catch(\Exception $e)
         {
@@ -349,6 +351,18 @@ class AmqpQueueProvider extends AbstractQueueProvider
       );
     }
     return $this->_publishConfirm;
+  }
+
+  protected function _getPushTimeout()
+  {
+    if($this->_pushTimeout === null)
+    {
+      $this->_pushTimeout = (bool)$this->config()->getItem(
+        'push_timeout',
+        0
+      );
+    }
+    return $this->_pushTimeout;
   }
 
   protected function _getRoutingKey()
