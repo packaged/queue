@@ -16,8 +16,7 @@ class AmqpTest extends \PHPUnit_Framework_TestCase
       ->push('this is a test');
 
     $q->consume(
-      function ($message, $deliveryTag) use ($q)
-      {
+      function ($message, $deliveryTag) use ($q) {
         $this->assertEquals('this is a test', $message);
         $q->ack($deliveryTag);
       }
@@ -67,8 +66,7 @@ class AmqpTest extends \PHPUnit_Framework_TestCase
     {
       $c = 0;
       $q->batchConsume(
-        function (array $messages) use ($q, &$c)
-        {
+        function (array $messages) use ($q, &$c) {
           $results = [];
           foreach($messages as $tag => $message)
           {
@@ -111,8 +109,7 @@ class AmqpTest extends \PHPUnit_Framework_TestCase
     {
       $c = 0;
       $q->batchConsume(
-        function (array $messages) use ($q, &$c)
-        {
+        function (array $messages) use ($q, &$c) {
           $results = [];
           foreach($messages as $tag => $message)
           {
@@ -151,8 +148,7 @@ class AmqpTest extends \PHPUnit_Framework_TestCase
     $q->pushBatch($data);
 
     $q->batchConsume(
-      function (array $messages) use ($q)
-      {
+      function (array $messages) use ($q) {
         $results = [];
         foreach($messages as $tag => $message)
         {
@@ -165,8 +161,7 @@ class AmqpTest extends \PHPUnit_Framework_TestCase
 
     $count = 0;
     $q->batchConsume(
-      function (array $messages) use ($q, &$count)
-      {
+      function (array $messages) use ($q, &$count) {
         $results = [];
         foreach($messages as $tag => $message)
         {
@@ -190,5 +185,72 @@ class AmqpTest extends \PHPUnit_Framework_TestCase
       $q->configure($config);
     }
     return $q;
+  }
+
+  /**
+   * @param $config
+   * @param $queueName
+   * @param $createExchange
+   * @param $createQueue
+   * @param $createBinding
+   *
+   * @dataProvider mandatoryDataProvider
+   */
+  public function testMandatory(
+    $config, $queueName, $createExchange, $createQueue, $createBinding
+  )
+  {
+    $q = AmqpQueueProvider::create($queueName)->deleteQueueAndExchange();
+    $q->configure(new ConfigSection('', $config));
+
+    if($createExchange)
+    {
+      $q->declareExchange();
+    }
+    if($createQueue)
+    {
+      $q->declareQueue();
+    }
+    if($createBinding)
+    {
+      $q->bindQueue();
+    }
+
+    $q->push('test message ' . $queueName);
+
+    $result = null;
+    $q->consume(
+      function ($message, $deliveryTag) use ($q, &$result) {
+        $result = $message;
+        $q->ack($deliveryTag);
+      }
+    );
+    $this->assertEquals('test message ' . $queueName, $result);
+  }
+
+  public function mandatoryDataProvider()
+  {
+    $configs = [
+      [
+        'mandatory'       => true,
+        'auto_declare'    => true,
+        'publish_confirm' => true,
+      ],
+    ];
+
+    $runs = [];
+    foreach($configs as $config)
+    {
+      $runs = array_merge(
+        $runs,
+        [
+          [$config, 'NoQueueOrExchange', false, false, false],
+          [$config, 'ExchangeNoQueue', true, false, false],
+          [$config, 'ExchangeQueueNoBinding', true, true, false],
+          [$config, 'ExchangeQueueBinding', true, true, true],
+        ]
+      );
+    }
+    return $runs;
   }
 }

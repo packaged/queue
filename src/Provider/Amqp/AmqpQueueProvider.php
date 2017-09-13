@@ -113,8 +113,7 @@ class AmqpQueueProvider extends AbstractQueueProvider
         $exchange,
         $routingKey,
         $message
-      ) use (&$needRetry, &$needDeclare, &$autoDeclare)
-      {
+      ) use (&$needRetry, &$needDeclare, &$autoDeclare) {
         if($autoDeclare && ($replyCode == 312))
         {
           $needDeclare = true;
@@ -381,20 +380,16 @@ class AmqpQueueProvider extends AbstractQueueProvider
     return $object;
   }
 
-  public function deleteQueueAndExchange()
-  {
-    $this->deleteQueue();
-    $this->deleteExchange();
-  }
-
   public function ack($deliveryTag)
   {
-    $this->_getChannel(self::CONN_CONSUME)->basic_ack($deliveryTag, false);
+    $this->_getChannel(self::CONN_CONSUME)
+      ->basic_ack($deliveryTag, false);
   }
 
   public function nack($deliveryTag, $requeueFailures = false)
   {
-    $this->_getChannel(self::CONN_CONSUME)->basic_reject($deliveryTag, $requeueFailures);
+    $this->_getChannel(self::CONN_CONSUME)
+      ->basic_reject($deliveryTag, $requeueFailures);
   }
 
   public function batchAck(array $tagResults, $requeueFailures = false)
@@ -770,9 +765,27 @@ class AmqpQueueProvider extends AbstractQueueProvider
     return $this;
   }
 
+  public function deleteQueueAndExchange()
+  {
+    $this->unbindQueue();
+    $this->deleteQueue();
+    $this->deleteExchange();
+    return $this;
+  }
+
   public function bindQueue()
   {
     $this->_getChannel(self::CONN_OTHER)->queue_bind(
+      $this->_getQueueName(),
+      $this->_getExchangeName(),
+      $this->_getRoutingKey()
+    );
+    return $this;
+  }
+
+  public function unbindQueue()
+  {
+    $this->_getChannel(self::CONN_OTHER)->queue_unbind(
       $this->_getQueueName(),
       $this->_getExchangeName(),
       $this->_getRoutingKey()
