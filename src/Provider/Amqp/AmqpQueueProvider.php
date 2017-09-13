@@ -41,12 +41,6 @@ class AmqpQueueProvider extends AbstractQueueProvider
   protected $_routingKey;
   protected $_exchange;
 
-  protected $_mandatoryFlag = null;
-  protected $_autoDeclare = null;
-  protected $_publishConfirm = null;
-
-  protected $_pushTimeout = 0;
-
   protected $_persistentDefault = false;
 
   /**
@@ -113,8 +107,7 @@ class AmqpQueueProvider extends AbstractQueueProvider
         $replyCode,
         $replyText,
         $exchange,
-        $routingKey,
-        $message
+        $routingKey
       ) use (&$needRetry, &$needDeclare, &$autoDeclare) {
         if($autoDeclare && ($replyCode == 312))
         {
@@ -322,47 +315,22 @@ class AmqpQueueProvider extends AbstractQueueProvider
 
   protected function _getMandatoryFlag()
   {
-    if($this->_mandatoryFlag === null)
-    {
-      $this->_mandatoryFlag = (bool)$this->config()->getItem('mandatory', true);
-    }
-    return $this->_mandatoryFlag;
+    return (bool)$this->config()->getItem('mandatory', true);
   }
 
   protected function _getAutoDeclare()
   {
-    if($this->_autoDeclare === null)
-    {
-      $this->_autoDeclare = (bool)$this->config()->getItem(
-        'auto_declare',
-        false
-      );
-    }
-    return $this->_autoDeclare;
+    return (bool)$this->config()->getItem('auto_declare', false);
   }
 
   protected function _getPublishConfirm()
   {
-    if($this->_publishConfirm === null)
-    {
-      $this->_publishConfirm = (bool)$this->config()->getItem(
-        'publish_confirm',
-        false
-      );
-    }
-    return $this->_publishConfirm;
+    return (bool)$this->config()->getItem('publish_confirm', false);
   }
 
   protected function _getPushTimeout()
   {
-    if($this->_pushTimeout === null)
-    {
-      $this->_pushTimeout = (bool)$this->config()->getItem(
-        'push_timeout',
-        0
-      );
-    }
-    return $this->_pushTimeout;
+    return (bool)$this->config()->getItem('push_timeout', 0);
   }
 
   protected function _getRoutingKey()
