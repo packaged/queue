@@ -107,8 +107,7 @@ class AmqpQueueProvider extends AbstractQueueProvider
         $replyCode,
         $replyText,
         $exchange,
-        $routingKey,
-        $message
+        $routingKey
       ) use (&$needRetry, &$needDeclare, &$autoDeclare) {
         if($autoDeclare && ($replyCode == 312))
         {
