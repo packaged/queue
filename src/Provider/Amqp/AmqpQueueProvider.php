@@ -109,7 +109,7 @@ class AmqpQueueProvider extends AbstractQueueProvider
         $exchange,
         $routingKey
       ) use (&$needRetry, &$needDeclare, &$autoDeclare) {
-        if($autoDeclare && ($replyCode == 312))
+        if($autoDeclare && (!$needDeclare) && ($replyCode == 312))
         {
           $needDeclare = true;
           $needRetry = true;
@@ -170,7 +170,7 @@ class AmqpQueueProvider extends AbstractQueueProvider
         catch(\Exception $e)
         {
           $this->disconnectAll();
-          if($autoDeclare && ($e->getCode() == 404))
+          if($autoDeclare && (!$needDeclare) && ($e->getCode() == 404))
           {
             $needRetry = true;
             $needDeclare = true;
