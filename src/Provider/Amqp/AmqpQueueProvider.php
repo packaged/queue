@@ -308,7 +308,7 @@ class AmqpQueueProvider extends AbstractQueueProvider
   {
     if($this->_waitTime === null)
     {
-      $this->_waitTime = $this->config()->getItem('wait_time', 30);
+      $this->_waitTime = (float)$this->config()->getItem('wait_time', 30);
     }
     return $this->_waitTime;
   }
@@ -330,7 +330,7 @@ class AmqpQueueProvider extends AbstractQueueProvider
 
   protected function _getPushTimeout()
   {
-    return (bool)$this->config()->getItem('push_timeout', 0);
+    return (float)$this->config()->getItem('push_timeout', 0);
   }
 
   protected function _getRoutingKey()
