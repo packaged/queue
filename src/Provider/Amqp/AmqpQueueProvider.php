@@ -330,7 +330,7 @@ class AmqpQueueProvider extends AbstractQueueProvider
 
   protected function _getPushTimeout()
   {
-    return (int)$this->config()->getItem('push_timeout', 0);
+    return (float)$this->config()->getItem('push_timeout', 0);
   }
 
   protected function _getRoutingKey()
