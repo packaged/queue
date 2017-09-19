@@ -96,9 +96,12 @@ class AmqpQueueProvider extends AbstractQueueProvider
     $mandatory = $this->_getMandatoryFlag();
     $autoDeclare = $this->_getAutoDeclare();
     $publishConfirm = $this->_getPublishConfirm();
+    // max no. of times to attempt declaring the queue
+    $declareRetryLimit = 2;
 
     $needRetry = true;
     $needDeclare = false;
+    $declareAttempts = 0;
 
     $returnCallback = null;
     if($mandatory)
@@ -108,8 +111,15 @@ class AmqpQueueProvider extends AbstractQueueProvider
         $replyText,
         $exchange,
         $routingKey
-      ) use (&$needRetry, &$needDeclare, &$autoDeclare) {
-        if($autoDeclare && (!$needDeclare) && ($replyCode == 312))
+      ) use (
+        &$needRetry, &$needDeclare, &$autoDeclare,
+        $declareAttempts, $declareRetryLimit
+      )
+      {
+        if($autoDeclare
+          && ($declareAttempts < $declareRetryLimit)
+          && ($replyCode == 312)
+        )
         {
           $needDeclare = true;
           $needRetry = true;
@@ -136,6 +146,7 @@ class AmqpQueueProvider extends AbstractQueueProvider
       if($needDeclare)
       {
         $this->_log("Auto-declaring exchange and queue");
+        $declareAttempts++;
         $this->declareExchange();
         $this->declareQueue();
         $this->bindQueue();
@@ -170,7 +181,10 @@ class AmqpQueueProvider extends AbstractQueueProvider
         catch(\Exception $e)
         {
           $this->disconnectAll();
-          if($autoDeclare && (!$needDeclare) && ($e->getCode() == 404))
+          if($autoDeclare
+            && ($declareAttempts < $declareRetryLimit)
+            && ($e->getCode() == 404)
+          )
           {
             $needRetry = true;
             $needDeclare = true;
