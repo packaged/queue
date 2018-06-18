@@ -18,7 +18,6 @@
   "suggest": {
     "php-amqplib/php-amqplib": "Enables using queues in RabbitMQ",
     "google/cloud-pubsub": "Enables using queues in Google Cloud PubSub"
-
   },
   "require-dev": {
     "phpunit/phpunit": "~4.8.0",
