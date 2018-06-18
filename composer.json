@@ -17,12 +17,13 @@
   },
   "suggest": {
     "php-amqplib/php-amqplib": "Enables using queues in RabbitMQ",
-    "google/apiclient": "Enables using queues in Google PubSub"
+    "google/cloud-pubsub": "Enables using queues in Google Cloud PubSub"
+
   },
   "require-dev": {
     "phpunit/phpunit": "~4.8.0",
     "php-amqplib/php-amqplib": "~2.6.2",
-    "google/apiclient": "~1.0"
+    "google/cloud-pubsub": "~1.3.0"
   },
   "autoload": {
     "psr-4": {
