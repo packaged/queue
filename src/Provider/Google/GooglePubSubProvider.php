@@ -119,35 +119,31 @@ class GooglePubSubProvider extends AbstractQueueProvider implements IBatchQueueP
   /**
    * @throws \Exception
    */
-  public function createTopic()
-  {
-    try
-    {
-      $this->_getTopic()->create();
-    }
-    catch(ConflictException $e)
-    {
-      if($e->getCode() != 409)
-      {
-        throw $e;
-      }
-    }
-  }
-
-  /**
-   * @throws \Exception
-   */
-  public function createSubscription()
+  private function _createTopicAndSub()
   {
     try
     {
       try
       {
+        $this->_log('Auto-creating subscription ' . $this->_getSubscription()->name());
         $this->_getSubscription()->create();
       }
       catch(NotFoundException $e)
       {
-        $this->createTopic();
+        try
+        {
+          $this->_log('Auto-creating topic ' . $this->_getTopic()->name());
+          $this->_getTopic()->create();
+        }
+        catch(ConflictException $e)
+        {
+          if($e->getCode() != 409)
+          {
+            throw $e;
+          }
+        }
+
+        $this->_log('Auto-creating subscription ' . $this->_getSubscription()->name() . " (second attempt)");
         $this->_getSubscription()->create();
       }
     }
@@ -202,8 +198,7 @@ class GooglePubSubProvider extends AbstractQueueProvider implements IBatchQueueP
     {
       if($this->_getAutoCreate() && ($e->getCode() == 404))
       {
-        $this->_log('Auto-creating topic ' . $topic->name());
-        $topic->create();
+        $this->_createTopicAndSub();
         return $topic->publishBatch($messages);
       }
       throw $e;
@@ -220,7 +215,8 @@ class GooglePubSubProvider extends AbstractQueueProvider implements IBatchQueueP
     $sub = $this->_getSubscription();
     if($this->_getAutoCreate() && (!$sub->exists()))
     {
-      $this->createSubscription();
+      $this->_log('Auto-creating subscription ' . $sub->name());
+      $this->_createTopicAndSub();
     }
 
     $messages = $sub->pull(['returnImmediately' => false, 'maxMessages' => 1]);
@@ -251,7 +247,8 @@ class GooglePubSubProvider extends AbstractQueueProvider implements IBatchQueueP
     $sub = $this->_getSubscription();
     if($this->_getAutoCreate() && (!$sub->exists()))
     {
-      $this->createSubscription();
+      $this->_log('Auto-creating subscription ' . $sub->name());
+      $this->_createTopicAndSub();
     }
 
     $toProcess = [];
