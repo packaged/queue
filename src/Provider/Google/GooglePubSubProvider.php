@@ -10,6 +10,15 @@ use Google\Cloud\PubSub\Topic;
 use Packaged\Queue\IBatchQueueProvider;
 use Packaged\Queue\Provider\AbstractQueueProvider;
 
+/*
+ * Available config options:
+ *
+ * Option       Default  Description
+ * credentials	null	   Google service account credentials provided as one of: Path to credentials file, JSON string
+ *                       of credentials file content, or array of decoded JSON. Can be left blank if using the emulator.
+ * auto_create	false	   If true then automatically create topics and subscriptions if they do not exist
+ * ack_deadline	null	   Default ACK deadline for messages in this subscription. Uses Google's default if not specified.
+ */
 class GooglePubSubProvider extends AbstractQueueProvider implements IBatchQueueProvider
 {
   /** @var string */
@@ -125,8 +134,15 @@ class GooglePubSubProvider extends AbstractQueueProvider implements IBatchQueueP
     {
       try
       {
+        $opts = [];
+        $ackDl = $this->config()->getItem('ack_deadline');
+        if($ackDl)
+        {
+          $opts['ackDeadlineSeconds'] = $ackDl;
+        }
+
         $this->_log('Auto-creating subscription ' . $this->_getSubscription()->name());
-        $this->_getSubscription()->create();
+        $this->_getSubscription()->create($opts);
       }
       catch(NotFoundException $e)
       {
@@ -215,7 +231,6 @@ class GooglePubSubProvider extends AbstractQueueProvider implements IBatchQueueP
     $sub = $this->_getSubscription();
     if($this->_getAutoCreate() && (!$sub->exists()))
     {
-      $this->_log('Auto-creating subscription ' . $sub->name());
       $this->_createTopicAndSub();
     }
 
