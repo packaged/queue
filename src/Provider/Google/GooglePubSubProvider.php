@@ -50,7 +50,7 @@ class GooglePubSubProvider extends AbstractQueueProvider implements IBatchQueueP
   /**
    * @throws \Exception
    */
-  public function getClient()
+  private function _getClient()
   {
     if($this->_client === null)
     {
@@ -107,7 +107,7 @@ class GooglePubSubProvider extends AbstractQueueProvider implements IBatchQueueP
   {
     if($this->_topic === null)
     {
-      $this->_topic = $this->getClient()->topic($this->_topicName);
+      $this->_topic = $this->_getClient()->topic($this->_topicName);
     }
     return $this->_topic;
   }
@@ -120,7 +120,7 @@ class GooglePubSubProvider extends AbstractQueueProvider implements IBatchQueueP
   {
     if($this->_subscription === null)
     {
-      $this->_subscription = $this->getClient()->subscription($this->_subscriptionName, $this->_topicName);
+      $this->_subscription = $this->_getClient()->subscription($this->_subscriptionName, $this->_topicName);
     }
     return $this->_subscription;
   }
