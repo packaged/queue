@@ -1,172 +1,171 @@
 <?php
 namespace Packaged\Queue\Provider\Google;
 
+use Google\Cloud\Core\Exception\ConflictException;
+use Google\Cloud\Core\Exception\NotFoundException;
+use Google\Cloud\PubSub\Message;
+use Google\Cloud\PubSub\PubSubClient;
+use Google\Cloud\PubSub\Subscription;
+use Google\Cloud\PubSub\Topic;
 use Packaged\Queue\IBatchQueueProvider;
+use Packaged\Queue\Provider\AbstractQueueProvider;
 
-class GooglePubSubProvider implements IBatchQueueProvider
+/*
+ * Available config options:
+ *
+ * Option       Default  Description
+ * credentials	null	   Google service account credentials provided as one of: Path to credentials file, JSON string
+ *                       of credentials file content, or array of decoded JSON. Can be left blank if using the emulator.
+ * auto_create	false	   If true then automatically create topics and subscriptions if they do not exist
+ * ack_deadline	null	   Default ACK deadline for messages in this subscription. Uses Google's default if not specified.
+ */
+class GooglePubSubProvider extends AbstractQueueProvider implements IBatchQueueProvider
 {
-  /** @var \Google_Client */
-  private $_client;
   /** @var string */
-  private $_projectId;
-  /** @var \Google_Service_Pubsub|null */
-  private $_pubSubService = null;
-  /** @var \Google_Service_Pubsub_Topic */
-  private $_topic;
-  /** @var \Google_Service_Pubsub_Subscription|null */
+  private $_topicName;
+  /** @var string */
+  private $_subscriptionName;
+  /** @var PubSubClient */
+  private $_client = null;
+  /** @var Topic */
+  private $_topic = null;
+  /** @var Subscription */
   private $_subscription = null;
+  /** @var Message[] */
+  private $_unAckedMessages = [];
 
-  private $_topicShortName;
-  private $_subscriptionShortName;
-
-  /**
-   * @param \Google_Client $client
-   * @param string         $projectId
-   * @param string         $topicName
-   * @param string|null    $subscriptionName
-   * @param int|null       $ackDeadlineSeconds
-   */
-  public function __construct(
-    \Google_Client $client, $projectId, $topicName, $subscriptionName = null,
-    $ackDeadlineSeconds = null
-  )
+  public static function create($topicName, $subscriptionName = null)
   {
-    $this->_client = $client;
-    $this->_projectId = $projectId;
-
-    $this->_topicShortName = $topicName;
-    $this->_subscriptionShortName = $subscriptionName;
-
-    // For v1 API (currently on v1beta)
-    //$topicPath = 'projects/' . $this->_project . '/topics/' . $this->_topic;
-    $topicPath = '/topics/' . $projectId . '/' . $topicName;
-    $this->_topic = new \Google_Service_Pubsub_Topic();
-    $this->_topic->setName($topicPath);
-
-    if($subscriptionName)
+    if(!$subscriptionName)
     {
-      $this->_subscription = new \Google_Service_Pubsub_Subscription();
-      $this->_subscription->setTopic($topicPath);
-      $this->_subscription->setName(
-        '/subscriptions/' . $projectId . '/' . $subscriptionName
-      );
-      if($ackDeadlineSeconds)
-      {
-        $this->_subscription->setAckDeadlineSeconds($ackDeadlineSeconds);
-      }
-
-      // for v1 API
-      //$this->_subscription->setName(
-      //  'projects/' . $this->_project . '/subscriptions/' . $this->_subscription
-      //);
+      $subscriptionName = $topicName;
     }
-  }
-
-  protected function _log($msg)
-  {
-    error_log(
-      'GooglePubSubProvider (' . $this->_topicShortName . ', '
-      . $this->_subscriptionShortName . ') : ' . $msg
-    );
+    /** @var static $o */
+    $o = parent::create($topicName . '/' . $subscriptionName);
+    $o->_topicName = $topicName;
+    $o->_subscriptionName = $subscriptionName;
+    return $o;
   }
 
   /**
-   * @return \Google_Client
+   * @throws \Exception
    */
-  protected function _getClient()
+  private function _getClient()
   {
+    if($this->_client === null)
+    {
+      $options = [];
+      $rawCreds = $this->config()->getItem('credentials', null);
+      if($rawCreds)
+      {
+        $options['keyFile'] = $this->_loadCredentials($rawCreds);
+      }
+      $this->_client = new PubSubClient($options);
+    }
     return $this->_client;
   }
 
   /**
-   * @return string
+   * @param string|array $credentials
+   *
+   * @return array
+   * @throws \Exception
    */
-  public function getProjectId()
+  private function _loadCredentials($credentials)
   {
-    return $this->_projectId;
-  }
-
-  /**
-   * @return \Google_Service_Pubsub
-   */
-  protected function _getPubSubService()
-  {
-    if($this->_pubSubService === null)
+    // Load/decode credentials
+    if(is_string($credentials))
     {
-      $this->_pubSubService = new \Google_Service_Pubsub($this->_getClient());
+      if(file_exists($credentials))
+      {
+        if(!is_file($credentials))
+        {
+          throw new \Exception('The specified credentials file is not a file');
+        }
+        $credentials = file_get_contents($credentials);
+      }
+
+      $decoded = json_decode($credentials, true);
+      if(!$decoded)
+      {
+        throw new \Exception('The provided credentials are not in valid JSON format');
+      }
+      $credentials = $decoded;
     }
-    return $this->_pubSubService;
+    if((!is_array($credentials)) || (empty($credentials['project_id'])))
+    {
+      throw new \Exception(('Invalid credentials provided'));
+    }
+    return $credentials;
   }
 
   /**
-   * @return \Google_Service_Pubsub_Topic
+   * @return Topic
+   * @throws \Exception
    */
   protected function _getTopic()
   {
+    if($this->_topic === null)
+    {
+      $this->_topic = $this->_getClient()->topic($this->_topicName);
+    }
     return $this->_topic;
   }
 
   /**
-   * @return \Google_Service_Pubsub_Subscription|null
+   * @return Subscription
+   * @throws \Exception
    */
   protected function _getSubscription()
   {
+    if($this->_subscription === null)
+    {
+      $this->_subscription = $this->_getClient()->subscription($this->_subscriptionName, $this->_topicName);
+    }
     return $this->_subscription;
   }
 
   /**
-   * @param \Google_Service_Exception $e
-   * @param string                    $resourceName
-   *
-   * @return bool
+   * @throws \Exception
    */
-  private function _isMissingResourceError(
-    \Google_Service_Exception $e, $resourceName
-  )
+  private function _createTopicAndSub()
   {
-    return ($e->getCode() == 404)
-    && stristr(
-      $e->getMessage(),
-      'Resource not found (resource=' . basename($resourceName) . ')'
-    );
-  }
+    $subscriptionOpts = [];
+    $ackDl = (int)$this->config()->getItem('ack_deadline');
+    if($ackDl)
+    {
+      $subscriptionOpts['ackDeadlineSeconds'] = $ackDl;
+    }
 
-  /**
-   * @param \Google_Service_Exception $e
-   * @param string                    $resourceName
-   *
-   * @return bool
-   */
-  private function _isAlreadyExistsError(
-    \Google_Service_Exception $e, $resourceName
-  )
-  {
-    return ($e->getCode() == 409)
-    && stristr(
-      $e->getMessage(),
-      'Resource already exists in the project (resource='
-      . basename($resourceName) . ')'
-    );
-  }
-
-  /**
-   * @return \Google_Service_Pubsub_Topic
-   * @throws \Google_Service_Exception
-   */
-  protected function _createTopic()
-  {
-    $this->_log('Creating topic ' . $this->_topicShortName);
     try
     {
-      return $this->_getPubSubService()->topics->create($this->_getTopic());
-    }
-    catch(\Google_Service_Exception $e)
-    {
-      if($this->_isAlreadyExistsError($e, $this->_getTopic()->getName()))
+      try
       {
-        return $this->_getTopic();
+        $this->_log('Auto-creating subscription ' . $this->_getSubscription()->name());
+        $this->_getSubscription()->create($subscriptionOpts);
       }
-      else
+      catch(NotFoundException $e)
+      {
+        try
+        {
+          $this->_log('Auto-creating topic ' . $this->_getTopic()->name());
+          $this->_getTopic()->create();
+        }
+        catch(ConflictException $e)
+        {
+          if($e->getCode() != 409)
+          {
+            throw $e;
+          }
+        }
+
+        $this->_log('Auto-creating subscription ' . $this->_getSubscription()->name() . " (second attempt)");
+        $this->_getSubscription()->create($subscriptionOpts);
+      }
+    }
+    catch(ConflictException $e)
+    {
+      if($e->getCode() != 409)
       {
         throw $e;
       }
@@ -174,72 +173,24 @@ class GooglePubSubProvider implements IBatchQueueProvider
   }
 
   /**
-   * Create the subscription in PubSub
+   * @param mixed $data
    *
-   * @return \Google_Service_Pubsub_Subscription
-   * @throws \Exception
-   */
-  protected function _createSubscription()
-  {
-    $sub = $this->_getSubscription();
-    if(!$sub)
-    {
-      throw new \Exception('Subscription not set');
-    }
-
-    $result = null;
-    $retry = true;
-    while($retry)
-    {
-      $this->_log('Creating subscription ' . $this->_subscriptionShortName);
-      try
-      {
-        $retry = false;
-        $result = $this->_getPubSubService()->subscriptions->create($sub);
-      }
-      catch(\Google_Service_Exception $e)
-      {
-        if($this->_isMissingResourceError(
-          $e,
-          $this->_getTopic()->getName()
-        )
-        )
-        {
-          $retry = true;
-          $this->_createTopic();
-        }
-        else if($this->_isAlreadyExistsError($e, $this->_subscriptionShortName))
-        {
-          $retry = false;
-          $result = $this->_getSubscription();
-        }
-        else
-        {
-          throw $e;
-        }
-      }
-    }
-    return $result;
-  }
-
-  /**
-   * Make sure that the topic and subscription exist. It is a good idea to
-   * call this before pushing anything into the queue.
+   * @return string The message ID
    *
    * @throws \Exception
-   * @throws \Google_Service_Exception
    */
-  public function createComponents()
+  public function push($data)
   {
-    $this->_createTopic();
-    $this->_createSubscription();
+    $msgIds = $this->pushBatch([$data]);
+    return reset($msgIds);
   }
 
   /**
    * @param array $batch
    *
    * @return string[] A list of message IDs indexed by the same keys as $batch
-   * @throws \Google_Service_Exception
+   * @throws NotFoundException
+   * @throws \Exception
    */
   public function pushBatch(array $batch)
   {
@@ -248,164 +199,195 @@ class GooglePubSubProvider implements IBatchQueueProvider
       return null;
     }
 
-    $toPush = [];
-    $messageKeys = array_keys($batch);
-    foreach($batch as $rawMsg)
+    $messages = [];
+    foreach($batch as $k => $data)
     {
-      $msg = new \Google_Service_Pubsub_PubsubMessage();
-      $msg->setData(base64_encode(json_encode($rawMsg)));
-      $toPush[] = $msg;
+      $messages[$k] = $this->_encodeMessage($data);
     }
-    $topicPath = $this->_getTopic()->getName();
-    $body = new \Google_Service_Pubsub_PublishBatchRequest();
-    $body->setTopic($topicPath);
-    $body->setMessages($toPush);
 
-    $messageIds = [];
-    $retry = true;
-    while($retry)
+    $topic = $this->_getTopic();
+    try
     {
-      try
-      {
-        $retry = false;
-        $result = $this->_getPubSubService()->topics->publishBatch($body);
-        $returnedIds = $result->getMessageIds();
-
-        $i = 0;
-        foreach($messageKeys as $key)
-        {
-          $messageIds[$key] = $returnedIds[$i];
-          $i++;
-        }
-      }
-      catch(\Google_Service_Exception $e)
-      {
-        if($this->_isMissingResourceError($e, $topicPath))
-        {
-          $retry = true;
-          $this->_createTopic();
-        }
-        else
-        {
-          throw $e;
-        }
-      }
+      return $topic->publishBatch($messages);
     }
-    return $messageIds;
+    catch(NotFoundException $e)
+    {
+      if($this->_getAutoCreate() && ($e->getCode() == 404))
+      {
+        $this->_createTopicAndSub();
+        return $topic->publishBatch($messages);
+      }
+      throw $e;
+    }
   }
 
   /**
-   * @param $data
+   * @param callable $callback
    *
-   * @return \Google_Service_Pubsub_PublishBatchResponse|null
-   * @throws \Google_Service_Exception
+   * @throws \Exception
    */
-  public function push($data)
-  {
-    return $this->pushBatch([$data]);
-  }
-
   public function consume(callable $callback)
   {
-    // TODO: Implement consume() method.
+    $sub = $this->_getSubscription();
+    if($this->_getAutoCreate() && (!$sub->exists()))
+    {
+      $this->_createTopicAndSub();
+    }
+
+    $messages = $sub->pull(['returnImmediately' => false, 'maxMessages' => 1]);
+    if(count($messages) > 0)
+    {
+      $message = reset($messages);
+      $data = $this->_decodeMessage($message->data());
+      if($callback($data))
+      {
+        $sub->acknowledge($message);
+      }
+      else
+      {
+        $sub->modifyAckDeadline($message, 0);
+      }
+    }
   }
 
   /**
    * @param callable $callback
    * @param int      $batchSize
    *
+   * @return bool True if there were messages to process, false if not
    * @throws \Exception
-   * @throws \Google_Service_Exception
    */
   public function batchConsume(callable $callback, $batchSize)
   {
-    if(!$this->_getSubscription())
+    $sub = $this->_getSubscription();
+    if($this->_getAutoCreate() && (!$sub->exists()))
     {
-      throw new \Exception(
-        'Cannot consume: No subscription has been configured'
-      );
+      $this->_createTopicAndSub();
     }
-    $subscriptionPath = $this->_getSubscription()->getName();
-    $req = new \Google_Service_Pubsub_PullBatchRequest();
-    $req->setSubscription($subscriptionPath);
-    $req->setMaxEvents($batchSize);
-    $req->setReturnImmediately(false);
 
-    $retry = true;
-    while($retry)
+    $toProcess = [];
+    $messages = $sub->pull(['returnImmediately' => false, 'maxMessages' => $batchSize]);
+    foreach($messages as $message)
     {
-      try
-      {
-        $retry = false;
-        $toProcess = [];
-        $result = $this->_getPubSubService()->subscriptions->pullBatch($req);
-        $responses = $result->getPullResponses();
-        foreach($responses as $response)
-        {
-          // also available in $response['pubsubEvent']['message']:
-          //  $msg['messageId'];
-          //  $msg['publishTime'];
-
-          $toProcess[$response['ackId']] = json_decode(
-            base64_decode(
-              $response['pubsubEvent']['message']['data']
-            )
-          );
-        }
-        $callback($toProcess);
-      }
-      catch(\Google_Service_Exception $e)
-      {
-        if($this->_isMissingResourceError($e, $subscriptionPath))
-        {
-          $retry = true;
-          $this->_createSubscription();
-        }
-        else
-        {
-          throw $e;
-        }
-      }
+      $this->_unAckedMessages[$message->ackId()] = $message;
+      $toProcess[$message->ackId()] = $this->_decodeMessage($message->data());
     }
+
+    if(count($toProcess) > 0)
+    {
+      $callback($toProcess);
+      return true;
+    }
+    return false;
   }
 
-  public function ack($messageTag)
+  /**
+   * Ack a message that is being used in a batch consume
+   *
+   * @param string $ackId
+   *
+   * @throws \Exception
+   */
+  public function ack($ackId)
   {
-    $this->batchAck([$messageTag => true]);
-  }
-
-  public function nack($messageTag, $requeue = true)
-  {
-    $this->batchAck([$messageTag => false], $requeue);
-  }
-
-  public function batchAck($results, $requeueFailures = true)
-  {
-    if($requeueFailures)
+    if(isset($this->_unAckedMessages[$ackId]))
     {
-      $results = array_filter($results);
-    }
-    $ackIds = array_keys($results);
-
-    if(count($results) > 0)
-    {
-      $body = new \Google_Service_Pubsub_AcknowledgeRequest();
-      $body->setSubscription($this->_getSubscription()->getName());
-      $body->setAckId($ackIds);
-      $this->_getPubSubService()->subscriptions->acknowledge($body);
+      $message = $this->_unAckedMessages[$ackId];
+      $this->_getSubscription()->acknowledge($message);
+      unset($this->_unAckedMessages[$ackId]);
     }
   }
 
   /**
-   * @param string[] $ackIds
-   * @param int      $deadline
+   * Nack a message that is being used in a batch consume
+   *
+   * @param string $ackId
+   *
+   * @throws \Exception
    */
-  public function modifyAckDeadline(array $ackIds, $deadline)
+  public function nack($ackId)
   {
-    $body = new \Google_Service_Pubsub_ModifyAckDeadlineRequest();
-    $body->setSubscription($this->_getSubscription()->getName());
-    $body->setAckIds($ackIds);
-    $body->setAckDeadlineSeconds($deadline);
-    $this->_getPubSubService()->subscriptions->modifyAckDeadline($body);
+    if(isset($this->_unAckedMessages[$ackId]))
+    {
+      $message = $this->_unAckedMessages[$ackId];
+      $this->_getSubscription()->modifyAckDeadline($message, 0);
+      unset($this->_unAckedMessages[$ackId]);
+    }
+  }
+
+  /**
+   * Ack and Nack a batch of messages
+   *
+   * @param bool[] $results Array of ackId => bool
+   *
+   * @throws \Exception
+   */
+  public function batchAck(array $results)
+  {
+    /** @var Message[] $toAck */
+    $toAck = [];
+    /** @var Message[] $toNack */
+    $toNack = [];
+    foreach($results as $ackId => $shouldAck)
+    {
+      if(isset($this->_unAckedMessages[$ackId]))
+      {
+        if($shouldAck)
+        {
+          $toAck[] = $this->_unAckedMessages[$ackId];
+        }
+        else
+        {
+          $toNack[] = $this->_unAckedMessages[$ackId];
+        }
+      }
+    }
+
+    if(count($toAck) > 0)
+    {
+      $this->_getSubscription()->acknowledgeBatch($toAck);
+      foreach($toAck as $msg)
+      {
+        unset($this->_unAckedMessages[$msg->ackId()]);
+      }
+    }
+
+    if(count($toNack) > 0)
+    {
+      $this->_getSubscription()->modifyAckDeadlineBatch($toNack, 0);
+      foreach($toNack as $msg)
+      {
+        unset($this->_unAckedMessages[$msg->ackId()]);
+      }
+    }
+  }
+
+  /**
+   * @param mixed $message
+   *
+   * @return array Message array in the format required to pass to Topic::publish()
+   */
+  protected function _encodeMessage($message)
+  {
+    return ['data' => base64_encode(json_encode($message))];
+  }
+
+  /**
+   * @param string $data
+   *
+   * @return array
+   */
+  protected function _decodeMessage($data)
+  {
+    return json_decode(base64_decode($data));
+  }
+
+  /**
+   * @return bool
+   * @throws \Exception
+   */
+  private function _getAutoCreate()
+  {
+    return (bool)$this->config()->getItem('auto_create', false);
   }
 }
