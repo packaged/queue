@@ -130,19 +130,19 @@ class GooglePubSubProvider extends AbstractQueueProvider implements IBatchQueueP
    */
   private function _createTopicAndSub()
   {
+    $subscriptionOpts = [];
+    $ackDl = (int)$this->config()->getItem('ack_deadline');
+    if($ackDl)
+    {
+      $subscriptionOpts['ackDeadlineSeconds'] = $ackDl;
+    }
+
     try
     {
       try
       {
-        $opts = [];
-        $ackDl = $this->config()->getItem('ack_deadline');
-        if($ackDl)
-        {
-          $opts['ackDeadlineSeconds'] = $ackDl;
-        }
-
         $this->_log('Auto-creating subscription ' . $this->_getSubscription()->name());
-        $this->_getSubscription()->create($opts);
+        $this->_getSubscription()->create($subscriptionOpts);
       }
       catch(NotFoundException $e)
       {
@@ -160,7 +160,7 @@ class GooglePubSubProvider extends AbstractQueueProvider implements IBatchQueueP
         }
 
         $this->_log('Auto-creating subscription ' . $this->_getSubscription()->name() . " (second attempt)");
-        $this->_getSubscription()->create();
+        $this->_getSubscription()->create($subscriptionOpts);
       }
     }
     catch(ConflictException $e)
