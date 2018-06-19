@@ -379,7 +379,7 @@ class GooglePubSubProvider extends AbstractQueueProvider implements IBatchQueueP
    */
   protected function _decodeMessage($data)
   {
-    return json_decode(base64_decode($data), true);
+    return json_decode(base64_decode($data));
   }
 
   /**
