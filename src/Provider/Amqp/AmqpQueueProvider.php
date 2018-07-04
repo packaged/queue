@@ -180,7 +180,7 @@ class AmqpQueueProvider extends AbstractQueueProvider
         }
         catch(\Exception $e)
         {
-          $this->disconnectAll();
+          $this->disconnect(self::CONN_PUSH);
           if($autoDeclare
             && ($declareAttempts < $declareRetryLimit)
             && ($e->getCode() == 404)
