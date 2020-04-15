@@ -1,5 +1,5 @@
 <?php
-namespace Packaged\Queue\Tests;
+namespace Packaged\Queue\Tests\Provider;
 
 use Packaged\Config\ConfigSectionInterface;
 use Packaged\Config\Provider\ConfigSection;
