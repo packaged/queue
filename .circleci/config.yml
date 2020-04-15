@@ -22,18 +22,6 @@ defaults: &defaults
 
 version: 2
 jobs:
-  build-php56:
-    <<: *defaults
-    docker:
-      - image: php:5.6-alpine
-        environment:
-          ADD_MODULES: bcmath
-  build-php70:
-    <<: *defaults
-    docker:
-      - image: php:7.0-alpine
-        environment:
-          ADD_MODULES: bcmath
   build-php71:
     <<: *defaults
     docker:
@@ -52,6 +40,12 @@ jobs:
       - image: php:7.3-alpine
         environment:
           ADD_MODULES: bcmath
+  build-php74:
+    <<: *defaults
+    docker:
+      - image: php:7.4-alpine
+        environment:
+          ADD_MODULES: bcmath
   build-phpRC:
     <<: *defaults
     docker:
@@ -62,9 +56,8 @@ workflows:
   version: 2
   build:
     jobs:
-      - build-php56
-      - build-php70
       - build-php71
       - build-php72
       - build-php73
+      - build-php74
       - build-phpRC
