@@ -114,8 +114,7 @@ class AmqpQueueProvider extends AbstractQueueProvider
       ) use (
         &$needRetry, &$needDeclare, &$autoDeclare,
         $declareAttempts, $declareRetryLimit
-      )
-      {
+      ) {
         if($autoDeclare
           && ($declareAttempts < $declareRetryLimit)
           && ($replyCode == 312)
@@ -396,7 +395,7 @@ class AmqpQueueProvider extends AbstractQueueProvider
     }
 
     $channel = $this->_getChannel(self::CONN_CONSUME);
-    $lastTag = null;
+    $remaining = [];
     // optimise ack/nack
     if(count(array_filter($tagResults)) >= (count($tagResults) / 2))
     {
@@ -409,12 +408,12 @@ class AmqpQueueProvider extends AbstractQueueProvider
         }
         else
         {
-          $lastTag = $tag;
+          $remaining[] = $tag;
         }
       }
-      if($lastTag)
+      if($remaining)
       {
-        $channel->basic_ack($lastTag, true);
+        $channel->basic_ack($remaining, true);
       }
     }
     else
@@ -428,12 +427,12 @@ class AmqpQueueProvider extends AbstractQueueProvider
         }
         else
         {
-          $lastTag = $tag;
+          $remaining[] = $tag;
         }
       }
-      if($lastTag)
+      if(!empty($remaining))
       {
-        $channel->basic_nack($lastTag, true, $requeueFailures);
+        $channel->basic_nack($remaining, true, $requeueFailures);
       }
     }
   }
