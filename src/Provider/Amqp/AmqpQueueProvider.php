@@ -224,7 +224,7 @@ class AmqpQueueProvider extends AbstractQueueProvider
     $callback = $this->_consumerCallback;
     $callback(
       json_decode($msg->body),
-      $msg->delivery_info['delivery_tag']
+      $msg->getDeliveryTag()
     );
   }
 
@@ -281,7 +281,7 @@ class AmqpQueueProvider extends AbstractQueueProvider
     }
     try
     {
-      $channel->wait(null, true, $this->_getWaitTime());
+      $channel->wait(null, false, $this->_getWaitTime());
     }
     catch(AMQPTimeoutException $e)
     {
