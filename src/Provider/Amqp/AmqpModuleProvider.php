@@ -276,7 +276,7 @@ class AmqpModuleProvider extends AbstractQueueProvider
   private function _makeFlags(array $items)
   {
     $flags = 0;
-    foreach($items as list($configItem, $flagConst, $default))
+    foreach($items as [$configItem, $flagConst, $default])
     {
       if($this->config()->getItem($configItem, $default))
       {
@@ -543,12 +543,12 @@ class AmqpModuleProvider extends AbstractQueueProvider
     return $messages;
   }
 
-  public function consumerCallback()
+  public function consumerCallback(\AMQPEnvelope $msg)
   {
     $callback = $this->_consumerCallback;
     $callback(
       json_decode($msg->getBody()),
-      $msg->delivery_info['delivery_tag']
+      $msg->getDeliveryTag()
     );
   }
 

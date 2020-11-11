@@ -13,9 +13,11 @@
   ],
   "require": {
     "php": ">=7.1.0",
-    "packaged/config": "~1.1"
+    "packaged/config": "~1.1",
+    "ext-amqp": "*"
   },
   "suggest": {
+    "ext-amqp": "Allows use of the AmqpModuleProvider",
     "php-amqplib/php-amqplib": "Enables using queues in RabbitMQ",
     "google/cloud-pubsub": "Enables using queues in Google Cloud PubSub"
   },
