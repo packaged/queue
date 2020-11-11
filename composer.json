@@ -26,7 +26,11 @@
   },
   "autoload": {
     "psr-4": {
-      "Packaged\\Queue\\": "src",
+      "Packaged\\Queue\\": "src"
+    }
+  },
+  "autoload-dev": {
+    "psr-4": {
       "Packaged\\Queue\\Tests\\": "tests"
     }
   }
