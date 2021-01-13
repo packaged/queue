@@ -9,6 +9,7 @@ use Google\Cloud\PubSub\Subscription;
 use Google\Cloud\PubSub\Topic;
 use Packaged\Queue\IBatchQueueProvider;
 use Packaged\Queue\Provider\AbstractQueueProvider;
+use Packaged\Queue\Provider\QueueCredentialsException;
 
 /*
  * Available config options:
@@ -19,6 +20,7 @@ use Packaged\Queue\Provider\AbstractQueueProvider;
  * auto_create	false	   If true then automatically create topics and subscriptions if they do not exist
  * ack_deadline	null	   Default ACK deadline for messages in this subscription. Uses Google's default if not specified.
  */
+
 class GooglePubSubProvider extends AbstractQueueProvider implements IBatchQueueProvider
 {
   /** @var string */
@@ -69,7 +71,7 @@ class GooglePubSubProvider extends AbstractQueueProvider implements IBatchQueueP
    * @param string|array $credentials
    *
    * @return array
-   * @throws \Exception
+   * @throws QueueCredentialsException
    */
   private function _loadCredentials($credentials)
   {
@@ -80,7 +82,7 @@ class GooglePubSubProvider extends AbstractQueueProvider implements IBatchQueueP
       {
         if(!is_file($credentials))
         {
-          throw new \Exception('The specified credentials file is not a file');
+          throw new QueueCredentialsException('The specified credentials file is not a file');
         }
         $credentials = file_get_contents($credentials);
       }
@@ -88,13 +90,13 @@ class GooglePubSubProvider extends AbstractQueueProvider implements IBatchQueueP
       $decoded = json_decode($credentials, true);
       if(!$decoded)
       {
-        throw new \Exception('The provided credentials are not in valid JSON format');
+        throw new QueueCredentialsException('The provided credentials are not in valid JSON format');
       }
       $credentials = $decoded;
     }
     if((!is_array($credentials)) || (empty($credentials['project_id'])))
     {
-      throw new \Exception(('Invalid credentials provided'));
+      throw new QueueCredentialsException(('Invalid credentials provided'));
     }
     return $credentials;
   }
