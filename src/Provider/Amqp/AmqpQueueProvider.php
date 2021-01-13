@@ -1,8 +1,11 @@
 <?php
 namespace Packaged\Queue\Provider\Amqp;
 
+use Exception;
 use Packaged\Queue\IBatchQueueProvider;
 use Packaged\Queue\Provider\AbstractQueueProvider;
+use Packaged\Queue\Provider\QueueConnectionException;
+use Packaged\Queue\QueueException;
 use PhpAmqpLib\Channel\AMQPChannel;
 use PhpAmqpLib\Connection\AbstractConnection;
 use PhpAmqpLib\Connection\AMQPStreamConnection;
@@ -91,6 +94,13 @@ class AmqpQueueProvider extends AbstractQueueProvider
     return $this;
   }
 
+  /**
+   * @param array $batch
+   * @param null  $persistent
+   *
+   * @return $this
+   * @throws QueueConnectionException
+   */
   public function pushBatch(array $batch, $persistent = null)
   {
     $mandatory = $this->_getMandatoryFlag();
@@ -106,27 +116,17 @@ class AmqpQueueProvider extends AbstractQueueProvider
     $returnCallback = null;
     if($mandatory)
     {
-      $returnCallback = function (
-        $replyCode,
-        $replyText,
-        $exchange,
-        $routingKey
-      ) use (
-        &$needRetry, &$needDeclare, &$autoDeclare,
-        $declareAttempts, $declareRetryLimit
-      )
+      $returnCallback = function ($replyCode, $replyText, $exchange, $routingKey) use
+      (&$needRetry, &$needDeclare, &$autoDeclare, $declareAttempts, $declareRetryLimit)
       {
-        if($autoDeclare
-          && ($declareAttempts < $declareRetryLimit)
-          && ($replyCode == 312)
-        )
+        if($autoDeclare && ($declareAttempts < $declareRetryLimit) && ($replyCode == 312))
         {
           $needDeclare = true;
           $needRetry = true;
         }
         else
         {
-          throw new \Exception(
+          throw new QueueConnectionException(
             'Error pushing message to exchange ' . $exchange
             . ' with routing key ' . $routingKey
             . ' : (' . $replyCode . ') ' . $replyText,
@@ -178,7 +178,7 @@ class AmqpQueueProvider extends AbstractQueueProvider
         {
           $ch->wait_for_pending_acks_returns($this->_getPushTimeout());
         }
-        catch(\Exception $e)
+        catch(Exception $e)
         {
           $this->disconnect(self::CONN_PUSH);
           if($autoDeclare
@@ -469,6 +469,10 @@ class AmqpQueueProvider extends AbstractQueueProvider
     }
   }
 
+  /**
+   * @return array
+   * @throws QueueConnectionException
+   */
   protected function _getHosts()
   {
     if(!$this->_hosts)
@@ -487,7 +491,7 @@ class AmqpQueueProvider extends AbstractQueueProvider
       }
       else
       {
-        throw new \Exception(
+        throw new QueueConnectionException(
           'All hosts failed to connect ' . $this->_hostsRetriesMax .
           ' times within ' . $this->_hostsResetTimeMax . ' seconds'
         );
@@ -501,6 +505,7 @@ class AmqpQueueProvider extends AbstractQueueProvider
    * @param $connectionMode
    *
    * @return AMQPStreamConnection
+   * @throws QueueConnectionException
    */
   protected function _getConnection($connectionMode)
   {
@@ -518,7 +523,7 @@ class AmqpQueueProvider extends AbstractQueueProvider
           $config->getItem('password', 'guest')
         );
       }
-      catch(\Exception $e)
+      catch(Exception $e)
       {
         $this->_log('AMQP host failed to connect (' . $host . ')');
         array_shift($this->_hosts);
@@ -536,7 +541,8 @@ class AmqpQueueProvider extends AbstractQueueProvider
    * @param $connectionMode
    *
    * @return AMQPChannel
-   * @throws \Exception
+   * @throws QueueConnectionException
+   * @throws Exception
    */
   protected function _getChannel($connectionMode)
   {
@@ -565,7 +571,7 @@ class AmqpQueueProvider extends AbstractQueueProvider
             break;
         }
       }
-      catch(\Exception $e)
+      catch(Exception $e)
       {
         $this->_log(
           'Error getting AMQP channel (' . $retries . ' retries remaining)'
@@ -620,7 +626,7 @@ class AmqpQueueProvider extends AbstractQueueProvider
         $this->_channels[$connectionMode]->close();
       }
     }
-    catch(\Exception $e)
+    catch(Exception $e)
     {
     }
     $this->_channels[$connectionMode] = null;
@@ -633,17 +639,24 @@ class AmqpQueueProvider extends AbstractQueueProvider
         $this->_connections[$connectionMode]->close();
       }
     }
-    catch(\Exception $e)
+    catch(Exception $e)
     {
     }
     $this->_connections[$connectionMode] = null;
   }
 
+  /**
+   * @param callable $callback
+   * @param          $batchSize
+   *
+   * @return bool
+   * @throws QueueException
+   */
   public function batchConsume(callable $callback, $batchSize)
   {
     if($this->_qosCount && $batchSize > $this->_qosCount)
     {
-      throw new \Exception('Cannot consume batches greater than QoS');
+      throw new QueueException('Cannot consume batches greater than QoS');
     }
     return parent::batchConsume($callback, $batchSize);
   }
