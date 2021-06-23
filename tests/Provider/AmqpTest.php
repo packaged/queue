@@ -7,10 +7,17 @@ use Packaged\Queue\Provider\Amqp\AmqpQueueProvider;
 
 class AmqpTest extends \PHPUnit_Framework_TestCase
 {
+  protected function _getProvider(string $queue, ?string $exchange = null)
+  {
+    $q = AmqpQueueProvider::create($queue, $exchange);
+    $q->configure(new ConfigSection('', ['heartbeat' => 2]));
+    return $q;
+  }
+
   public function testAmqp()
   {
-    $q = AmqpQueueProvider::create('test', 'testexchange')
-      ->declareExchange()
+    $q = $this->_getProvider('test', 'testexchange');
+    $q->declareExchange()
       ->declareQueue()
       ->bindQueue()
       ->push('this is a test');
@@ -25,7 +32,7 @@ class AmqpTest extends \PHPUnit_Framework_TestCase
 
   public function testQueueExists()
   {
-    $q = AmqpQueueProvider::create('new_queue');
+    $q = $this->_getProvider('new_queue');
     $this->assertFalse($q->queueExists());
     $q->declareQueue();
     $this->assertTrue($q->queueExists());
@@ -35,7 +42,7 @@ class AmqpTest extends \PHPUnit_Framework_TestCase
 
   public function testExchangeExists()
   {
-    $q = AmqpQueueProvider::create('new_queue_e', 'new_exchange');
+    $q = $this->_getProvider('new_queue_e', 'new_exchange');
     $this->assertFalse($q->exchangeExists());
     $q->declareExchange();
     $this->assertTrue($q->exchangeExists());
@@ -179,7 +186,7 @@ class AmqpTest extends \PHPUnit_Framework_TestCase
     $queueName, ConfigSectionInterface $config = null
   )
   {
-    $q = AmqpQueueProvider::create($queueName);
+    $q = $this->_getProvider($queueName);
     if($config)
     {
       $q->configure($config);
@@ -200,7 +207,7 @@ class AmqpTest extends \PHPUnit_Framework_TestCase
     $config, $queueName, $createExchange, $createQueue, $createBinding
   )
   {
-    $q = AmqpQueueProvider::create($queueName)->deleteQueueAndExchange();
+    $q = $this->_getProvider($queueName)->deleteQueueAndExchange();
     $q->configure(new ConfigSection('', $config));
 
     if($createExchange)
