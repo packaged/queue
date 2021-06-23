@@ -9,7 +9,9 @@ use Packaged\Queue\QueueException;
 use PhpAmqpLib\Channel\AMQPChannel;
 use PhpAmqpLib\Connection\AbstractConnection;
 use PhpAmqpLib\Connection\AMQPStreamConnection;
+use PhpAmqpLib\Connection\Heartbeat\PCNTLHeartbeatSender;
 use PhpAmqpLib\Exception\AMQPProtocolChannelException;
+use PhpAmqpLib\Exception\AMQPRuntimeException;
 use PhpAmqpLib\Exception\AMQPTimeoutException;
 use PhpAmqpLib\Message\AMQPMessage;
 use PhpAmqpLib\Wire\AMQPTable;
@@ -83,6 +85,11 @@ class AmqpQueueProvider extends AbstractQueueProvider
    */
   private $_slowPushThreshold = 0;
 
+  /**
+   * @var ?PCNTLHeartbeatSender
+   */
+  protected $_heartbeatSender;
+
   protected function _construct()
   {
     $this->_fixedConsumerCallback = [$this, 'consumerCallback'];
@@ -116,9 +123,8 @@ class AmqpQueueProvider extends AbstractQueueProvider
     $returnCallback = null;
     if($mandatory)
     {
-      $returnCallback = function ($replyCode, $replyText, $exchange, $routingKey) use
-      (&$needRetry, &$needDeclare, &$autoDeclare, $declareAttempts, $declareRetryLimit)
-      {
+      $returnCallback = function ($replyCode, $replyText, $exchange, $routingKey)
+      use (&$needRetry, &$needDeclare, &$autoDeclare, $declareAttempts, $declareRetryLimit) {
         if($autoDeclare && ($declareAttempts < $declareRetryLimit) && ($replyCode == 312))
         {
           $needDeclare = true;
@@ -520,7 +526,17 @@ class AmqpQueueProvider extends AbstractQueueProvider
           $host,
           $config->getItem('port', 5672),
           $config->getItem('username', 'guest'),
-          $config->getItem('password', 'guest')
+          $config->getItem('password', 'guest'),
+          $config->getItem('vhost', '/'),
+          false,
+          'AMQPLAIN',
+          null,
+          'en_US',
+          $config->getItem('connection_timeout', 3),
+          $config->getItem('read_write_timeout', 3),
+          null,
+          (bool)$config->getItem('keepalive', false),
+          $config->getItem('heartbeat', 0)
         );
       }
       catch(Exception $e)
@@ -534,6 +550,20 @@ class AmqpQueueProvider extends AbstractQueueProvider
       );
       $this->_lastConnectTimes[$connectionMode] = time();
     }
+
+    try
+    {
+      if($this->_heartbeatSender)
+      {
+        $this->_heartbeatSender->unregister();
+      }
+      $this->_heartbeatSender = new PCNTLHeartbeatSender($this->_connections[$connectionMode]);
+      $this->_heartbeatSender->register();
+    }
+    catch(AMQPRuntimeException $e)
+    {
+    }
+
     return $this->_connections[$connectionMode];
   }
 
@@ -630,6 +660,12 @@ class AmqpQueueProvider extends AbstractQueueProvider
     {
     }
     $this->_channels[$connectionMode] = null;
+
+    if($this->_heartbeatSender)
+    {
+      $this->_heartbeatSender->unregister();
+      $this->_heartbeatSender = null;
+    }
     try
     {
       if((!empty($this->_connections[$connectionMode]))
