@@ -2,6 +2,7 @@
 namespace Packaged\Queue\Provider\Amqp;
 
 use Exception;
+use Packaged\Helpers\ValueAs;
 use Packaged\Queue\IBatchQueueProvider;
 use Packaged\Queue\Provider\AbstractQueueProvider;
 use Packaged\Queue\Provider\QueueConnectionException;
@@ -335,17 +336,17 @@ class AmqpQueueProvider extends AbstractQueueProvider
 
   protected function _getMandatoryFlag()
   {
-    return (bool)$this->config()->getItem('mandatory', true);
+    return ValueAs::bool($this->config()->getItem('mandatory', true));
   }
 
   protected function _getAutoDeclare()
   {
-    return (bool)$this->config()->getItem('auto_declare', false);
+    return ValueAs::bool($this->config()->getItem('auto_declare', false));
   }
 
   protected function _getPublishConfirm()
   {
-    return (bool)$this->config()->getItem('publish_confirm', false);
+    return ValueAs::bool($this->config()->getItem('publish_confirm', false));
   }
 
   protected function _getPushTimeout()
@@ -535,7 +536,7 @@ class AmqpQueueProvider extends AbstractQueueProvider
           $config->getItem('connection_timeout', 3),
           $config->getItem('read_write_timeout', 3),
           null,
-          (bool)$config->getItem('keepalive', false),
+          ValueAs::bool($config->getItem('keepalive', false)),
           $config->getItem('heartbeat', 0)
         );
       }
@@ -544,10 +545,7 @@ class AmqpQueueProvider extends AbstractQueueProvider
         $this->_log('AMQP host failed to connect (' . $host . ')');
         array_shift($this->_hosts);
       }
-      $this->_persistentDefault = (bool)$config->getItem(
-        'persistent',
-        false
-      );
+      $this->_persistentDefault = ValueAs::bool($config->getItem('persistent', false));
       $this->_lastConnectTimes[$connectionMode] = time();
     }
 
@@ -748,11 +746,11 @@ class AmqpQueueProvider extends AbstractQueueProvider
     $config = $this->config();
     $this->_getChannel(self::CONN_OTHER)->queue_declare(
       $this->_getQueueName(),
-      (bool)$config->getItem('queue_passive', false),
-      (bool)$config->getItem('queue_durable', true),
-      (bool)$config->getItem('queue_exclusive', false),
-      (bool)$config->getItem('queue_autodelete', false),
-      (bool)$config->getItem('queue_nowait', false),
+      ValueAs::bool($config->getItem('queue_passive', false)),
+      ValueAs::bool($config->getItem('queue_durable', true)),
+      ValueAs::bool($config->getItem('queue_exclusive', false)),
+      ValueAs::bool($config->getItem('queue_autodelete', false)),
+      ValueAs::bool($config->getItem('queue_nowait', false)),
       new AMQPTable((array)$config->getItem('queue_args', null))
     );
     return $this;
@@ -793,11 +791,11 @@ class AmqpQueueProvider extends AbstractQueueProvider
     $this->_getChannel(self::CONN_OTHER)->exchange_declare(
       $this->_getExchangeName(),
       (string)$config->getItem('exchange_type', 'direct'),
-      (bool)$config->getItem('exchange_passive', false),
-      (bool)$config->getItem('exchange_durable', true),
-      (bool)$config->getItem('exchange_autodelete', false),
-      (bool)$config->getItem('exchange_internal', false),
-      (bool)$config->getItem('exchange_nowait', false),
+      ValueAs::bool($config->getItem('exchange_passive', false)),
+      ValueAs::bool($config->getItem('exchange_durable', true)),
+      ValueAs::bool($config->getItem('exchange_autodelete', false)),
+      ValueAs::bool($config->getItem('exchange_internal', false)),
+      ValueAs::bool($config->getItem('exchange_nowait', false)),
       (array)$config->getItem('exchange_args', null)
     );
     return $this;

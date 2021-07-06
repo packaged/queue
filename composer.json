@@ -12,8 +12,10 @@
     }
   ],
   "require": {
+    "ext-json": "*",
     "php": ">=7.1.0",
-    "packaged/config": "~1.1"
+    "packaged/config": "^1.1",
+    "packaged/helpers": "^2.0"
   },
   "suggest": {
     "php-amqplib/php-amqplib": "Enables using queues in RabbitMQ",

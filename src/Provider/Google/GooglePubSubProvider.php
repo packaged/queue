@@ -7,6 +7,7 @@ use Google\Cloud\PubSub\Message;
 use Google\Cloud\PubSub\PubSubClient;
 use Google\Cloud\PubSub\Subscription;
 use Google\Cloud\PubSub\Topic;
+use Packaged\Helpers\ValueAs;
 use Packaged\Queue\IBatchQueueProvider;
 use Packaged\Queue\Provider\AbstractQueueProvider;
 use Packaged\Queue\Provider\QueueCredentialsException;
@@ -390,6 +391,6 @@ class GooglePubSubProvider extends AbstractQueueProvider implements IBatchQueueP
    */
   private function _getAutoCreate()
   {
-    return (bool)$this->config()->getItem('auto_create', false);
+    return ValueAs::bool($this->config()->getItem('auto_create', false));
   }
 }
