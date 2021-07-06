@@ -25,14 +25,14 @@ jobs:
   build-php71:
     <<: *defaults
     docker:
-      - image: php:7.1-alpine3.13
+      - image: php:7.1-alpine
         environment:
           ADD_MODULES: bcmath sockets
       - image: rabbitmq:3.6-management
   build-php72:
     <<: *defaults
     docker:
-      - image: php:7.2-alpine3.13
+      - image: php:7.2-alpine
         environment:
           ADD_MODULES: bcmath sockets
       - image: rabbitmq:3.6-management
