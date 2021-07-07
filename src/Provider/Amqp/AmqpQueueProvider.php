@@ -11,6 +11,7 @@ use PhpAmqpLib\Channel\AMQPChannel;
 use PhpAmqpLib\Connection\AbstractConnection;
 use PhpAmqpLib\Connection\AMQPStreamConnection;
 use PhpAmqpLib\Connection\Heartbeat\PCNTLHeartbeatSender;
+use PhpAmqpLib\Exception\AMQPHeartbeatMissedException;
 use PhpAmqpLib\Exception\AMQPProtocolChannelException;
 use PhpAmqpLib\Exception\AMQPRuntimeException;
 use PhpAmqpLib\Exception\AMQPTimeoutException;
@@ -145,62 +146,70 @@ class AmqpQueueProvider extends AbstractQueueProvider
 
     while($needRetry)
     {
-      $needRetry = false;
-
-      $this->_refreshConnection(self::CONN_PUSH);
-      $ch = $this->_getChannel(self::CONN_PUSH);
-
-      if($needDeclare)
+      try
       {
-        $this->_log("Auto-declaring exchange and queue");
-        $declareAttempts++;
-        $this->declareExchange();
-        $this->declareQueue();
-        $this->bindQueue();
-      }
+        $needRetry = false;
 
-      $exchangeName = $this->_getExchangeName();
-      $routingKey = $this->_getRoutingKey();
+        $this->_refreshConnection(self::CONN_PUSH);
+        $ch = $this->_getChannel(self::CONN_PUSH);
 
-      if($mandatory && $returnCallback)
-      {
-        $ch->set_return_listener($returnCallback);
-      }
-
-      foreach($batch as $data)
-      {
-        $ch->batch_basic_publish(
-          $this->_getMessage($data, $persistent),
-          $exchangeName,
-          $routingKey,
-          $mandatory
-        );
-      }
-
-      $ch->publish_batch();
-
-      if($publishConfirm || $mandatory)
-      {
-        try
+        if($needDeclare)
         {
-          $ch->wait_for_pending_acks_returns($this->_getPushTimeout());
+          $this->_log("Auto-declaring exchange and queue");
+          $declareAttempts++;
+          $this->declareExchange();
+          $this->declareQueue();
+          $this->bindQueue();
         }
-        catch(Exception $e)
+
+        $exchangeName = $this->_getExchangeName();
+        $routingKey = $this->_getRoutingKey();
+
+        if($mandatory && $returnCallback)
         {
-          $this->disconnect(self::CONN_PUSH);
-          if($autoDeclare
-            && ($declareAttempts < $declareRetryLimit)
-            && ($e->getCode() == 404)
-          )
+          $ch->set_return_listener($returnCallback);
+        }
+
+        foreach($batch as $data)
+        {
+          $ch->batch_basic_publish(
+            $this->_getMessage($data, $persistent),
+            $exchangeName,
+            $routingKey,
+            $mandatory
+          );
+        }
+
+        $ch->publish_batch();
+
+        if($publishConfirm || $mandatory)
+        {
+          try
           {
-            $needRetry = true;
-            $needDeclare = true;
+            $ch->wait_for_pending_acks_returns($this->_getPushTimeout());
           }
-          else
+          catch(Exception $e)
           {
-            throw $e;
+            $this->disconnect(self::CONN_PUSH);
+            if($autoDeclare
+              && ($declareAttempts < $declareRetryLimit)
+              && ($e->getCode() == 404)
+            )
+            {
+              $needRetry = true;
+              $needDeclare = true;
+            }
+            else
+            {
+              throw $e;
+            }
           }
         }
+      }
+      catch(AMQPHeartbeatMissedException $e)
+      {
+        $this->disconnect(self::CONN_PUSH);
+        $needRetry = true;
       }
     }
     return $this;
