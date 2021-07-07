@@ -270,6 +270,11 @@ class AmqpQueueProvider extends AbstractQueueProvider
             $this->_fixedConsumerCallback
           );
         }
+        catch(AMQPHeartbeatMissedException $e)
+        {
+          $this->_disconnect(self::CONN_CONSUME);
+          $retry = true;
+        }
         catch(AMQPProtocolChannelException $e)
         {
           if(($e->getCode() == 404)
