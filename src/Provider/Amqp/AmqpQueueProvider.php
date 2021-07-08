@@ -659,38 +659,57 @@ class AmqpQueueProvider extends AbstractQueueProvider
 
   private function _disconnect($connectionMode)
   {
-    try
+    if((!empty($this->_channels[$connectionMode]))
+      && ($this->_channels[$connectionMode] instanceof AMQPChannel)
+    )
     {
-      if((!empty($this->_channels[$connectionMode]))
-        && ($this->_channels[$connectionMode] instanceof AMQPChannel)
-      )
+      try
       {
         $this->_channels[$connectionMode]->wait_for_pending_acks_returns($this->_getPushTimeout());
+      }
+      catch(\Throwable $e)
+      {
+      }
+      try
+      {
         $this->_channels[$connectionMode]->basic_cancel($this->_getConsumerId());
+      }
+      catch(\Throwable $e)
+      {
+      }
+      try
+      {
         $this->_channels[$connectionMode]->close();
       }
-    }
-    catch(Exception $e)
-    {
+      catch(\Throwable $e)
+      {
+      }
     }
     $this->_channels[$connectionMode] = null;
 
     if($this->_heartbeatSender)
     {
-      $this->_heartbeatSender->unregister();
-      $this->_heartbeatSender = null;
+      try
+      {
+        $this->_heartbeatSender->unregister();
+      }
+      catch(\Throwable $e)
+      {
+      }
     }
-    try
+    $this->_heartbeatSender = null;
+
+    if((!empty($this->_connections[$connectionMode]))
+      && ($this->_connections[$connectionMode] instanceof AbstractConnection)
+    )
     {
-      if((!empty($this->_connections[$connectionMode]))
-        && ($this->_connections[$connectionMode] instanceof AbstractConnection)
-      )
+      try
       {
         $this->_connections[$connectionMode]->close();
       }
-    }
-    catch(Exception $e)
-    {
+      catch(\Throwable $e)
+      {
+      }
     }
     $this->_connections[$connectionMode] = null;
   }
