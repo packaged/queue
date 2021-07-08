@@ -665,6 +665,7 @@ class AmqpQueueProvider extends AbstractQueueProvider
         && ($this->_channels[$connectionMode] instanceof AMQPChannel)
       )
       {
+        $this->_channels[$connectionMode]->wait_for_pending_acks_returns($this->_getPushTimeout());
         $this->_channels[$connectionMode]->basic_cancel($this->_getConsumerId());
         $this->_channels[$connectionMode]->close();
       }
