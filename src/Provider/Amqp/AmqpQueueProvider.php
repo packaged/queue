@@ -399,14 +399,30 @@ class AmqpQueueProvider extends AbstractQueueProvider
 
   public function ack($deliveryTag)
   {
-    $this->_getChannel(self::CONN_CONSUME)
-      ->basic_ack($deliveryTag, false);
+    try
+    {
+      $this->_getChannel(self::CONN_CONSUME)
+        ->basic_ack($deliveryTag, false);
+    }
+    catch(AMQPHeartbeatMissedException $e)
+    {
+      $this->disconnect(self::CONN_CONSUME);
+      $this->ack($deliveryTag);
+    }
   }
 
   public function nack($deliveryTag, $requeueFailures = false)
   {
-    $this->_getChannel(self::CONN_CONSUME)
-      ->basic_reject($deliveryTag, $requeueFailures);
+    try
+    {
+      $this->_getChannel(self::CONN_CONSUME)
+        ->basic_reject($deliveryTag, $requeueFailures);
+    }
+    catch(AMQPHeartbeatMissedException $e)
+    {
+      $this->disconnect(self::CONN_CONSUME);
+      $this->nack($deliveryTag, $requeueFailures);
+    }
   }
 
   public function batchAck(array $tagResults, $requeueFailures = false)
