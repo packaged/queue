@@ -572,7 +572,7 @@ class AmqpQueueProvider extends AbstractQueueProvider
       }
       catch(Exception $e)
       {
-        $this->_log('AMQP host failed to connect (' . $host . ')');
+        $this->_log('AMQP host failed to connect [' . $e->getMessage() . '] (' . $host . ')');
         array_shift($this->_hosts);
       }
       $this->_persistentDefault = ValueAs::bool($config->getItem('persistent', false));
@@ -590,6 +590,7 @@ class AmqpQueueProvider extends AbstractQueueProvider
     }
     catch(AMQPRuntimeException $e)
     {
+      $this->_log('Unable to start heartbeat sender. ' . $e->getMessage());
     }
 
     return $this->_connections[$connectionMode];
@@ -632,7 +633,7 @@ class AmqpQueueProvider extends AbstractQueueProvider
       catch(Exception $e)
       {
         $this->_log(
-          'Error getting AMQP channel (' . $retries . ' retries remaining)'
+          'Error getting AMQP channel [' . $e->getMessage() . '] (' . $retries . ' retries remaining) '
         );
         $this->disconnect($connectionMode);
         if(!($retries--))
