@@ -3,15 +3,40 @@ namespace Packaged\Queue\Tests\Provider;
 
 use Packaged\Config\ConfigSectionInterface;
 use Packaged\Config\Provider\ConfigSection;
-use Packaged\Queue\Provider\Amqp\AmqpQueueProvider;
+use Packaged\Queue\Tests\Provider\Mock\AmqpMockProvider;
 
 class AmqpTest extends \PHPUnit_Framework_TestCase
 {
   protected function _getProvider(string $queue, ?string $exchange = null)
   {
-    $q = AmqpQueueProvider::create($queue, $exchange);
-    $q->configure(new ConfigSection('', ['heartbeat' => 2]));
+    $q = AmqpMockProvider::create($queue, $exchange);
+    $q->configure(new ConfigSection('', ['heartbeat' => 4, 'read_write_timeout' => 3]));
+    $q->deleteQueueAndExchange();
     return $q;
+  }
+
+  public function testFailHeartbeat()
+  {
+    $q = $this->_getProvider('test_heartbeat')->unregisterHeartbeat();
+    $q->declareExchange()
+      ->declareQueue()
+      ->bindQueue();
+    $q->push($q->config()->getItem('heartbeat'));
+    self::assertEquals(0, $q->getDisconnectCount());
+    $q->consume(
+      function ($msg, $tag) use ($q) {
+
+        $timeLeft = (int)$msg * 3;
+        while($timeLeft > 0)
+        {
+          $timeLeft = sleep($timeLeft);
+        }
+
+        $q->ack($tag);
+        // expect one reconnect
+        self::assertEquals(1, $q->getDisconnectCount());
+      }
+    );
   }
 
   public function testAmqp()
@@ -207,7 +232,7 @@ class AmqpTest extends \PHPUnit_Framework_TestCase
     $config, $queueName, $createExchange, $createQueue, $createBinding
   )
   {
-    $q = $this->_getProvider($queueName)->deleteQueueAndExchange();
+    $q = $this->_getProvider($queueName);
     $q->configure(new ConfigSection('', $config));
 
     if($createExchange)
