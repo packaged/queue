@@ -272,7 +272,7 @@ class AmqpQueueProvider extends AbstractQueueProvider
         }
         catch(AMQPHeartbeatMissedException $e)
         {
-          $this->_disconnect(self::CONN_CONSUME);
+          $this->disconnect(self::CONN_CONSUME);
           $retry = true;
         }
         catch(AMQPProtocolChannelException $e)
@@ -300,9 +300,16 @@ class AmqpQueueProvider extends AbstractQueueProvider
       // replace callback for this consumer
       $channel->callbacks[$consumerId] = $this->_fixedConsumerCallback;
     }
+
+    // consumers bound, wait for message
     try
     {
       $channel->wait(null, false, $this->_getWaitTime());
+    }
+    catch(AMQPHeartbeatMissedException $e)
+    {
+      $this->disconnect(self::CONN_CONSUME);
+      return false;
     }
     catch(AMQPTimeoutException $e)
     {
