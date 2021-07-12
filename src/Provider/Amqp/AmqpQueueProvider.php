@@ -272,7 +272,7 @@ class AmqpQueueProvider extends AbstractQueueProvider
         }
         catch(AMQPHeartbeatMissedException $e)
         {
-          $this->_disconnect(self::CONN_CONSUME);
+          $this->disconnect(self::CONN_CONSUME);
           $retry = true;
         }
         catch(AMQPProtocolChannelException $e)
@@ -300,9 +300,16 @@ class AmqpQueueProvider extends AbstractQueueProvider
       // replace callback for this consumer
       $channel->callbacks[$consumerId] = $this->_fixedConsumerCallback;
     }
+
+    // consumers bound, wait for message
     try
     {
       $channel->wait(null, false, $this->_getWaitTime());
+    }
+    catch(AMQPHeartbeatMissedException $e)
+    {
+      $this->disconnect(self::CONN_CONSUME);
+      return false;
     }
     catch(AMQPTimeoutException $e)
     {
@@ -399,14 +406,30 @@ class AmqpQueueProvider extends AbstractQueueProvider
 
   public function ack($deliveryTag)
   {
-    $this->_getChannel(self::CONN_CONSUME)
-      ->basic_ack($deliveryTag, false);
+    try
+    {
+      $this->_getChannel(self::CONN_CONSUME)
+        ->basic_ack($deliveryTag, false);
+    }
+    catch(AMQPHeartbeatMissedException $e)
+    {
+      $this->disconnect(self::CONN_CONSUME);
+      $this->ack($deliveryTag);
+    }
   }
 
   public function nack($deliveryTag, $requeueFailures = false)
   {
-    $this->_getChannel(self::CONN_CONSUME)
-      ->basic_reject($deliveryTag, $requeueFailures);
+    try
+    {
+      $this->_getChannel(self::CONN_CONSUME)
+        ->basic_reject($deliveryTag, $requeueFailures);
+    }
+    catch(AMQPHeartbeatMissedException $e)
+    {
+      $this->disconnect(self::CONN_CONSUME);
+      $this->nack($deliveryTag, $requeueFailures);
+    }
   }
 
   public function batchAck(array $tagResults, $requeueFailures = false)
@@ -556,7 +579,7 @@ class AmqpQueueProvider extends AbstractQueueProvider
       }
       catch(Exception $e)
       {
-        $this->_log('AMQP host failed to connect (' . $host . ')');
+        $this->_log('AMQP host failed to connect [' . $e->getMessage() . '] (' . $host . ')');
         array_shift($this->_hosts);
       }
       $this->_persistentDefault = ValueAs::bool($config->getItem('persistent', false));
@@ -574,6 +597,7 @@ class AmqpQueueProvider extends AbstractQueueProvider
     }
     catch(AMQPRuntimeException $e)
     {
+      $this->_log('Unable to start heartbeat sender. ' . $e->getMessage());
     }
 
     return $this->_connections[$connectionMode];
@@ -616,7 +640,7 @@ class AmqpQueueProvider extends AbstractQueueProvider
       catch(Exception $e)
       {
         $this->_log(
-          'Error getting AMQP channel (' . $retries . ' retries remaining)'
+          'Error getting AMQP channel [' . $e->getMessage() . '] (' . $retries . ' retries remaining) '
         );
         $this->disconnect($connectionMode);
         if(!($retries--))
@@ -659,36 +683,57 @@ class AmqpQueueProvider extends AbstractQueueProvider
 
   private function _disconnect($connectionMode)
   {
-    try
+    if((!empty($this->_channels[$connectionMode]))
+      && ($this->_channels[$connectionMode] instanceof AMQPChannel)
+    )
     {
-      if((!empty($this->_channels[$connectionMode]))
-        && ($this->_channels[$connectionMode] instanceof AMQPChannel)
-      )
+      try
+      {
+        $this->_channels[$connectionMode]->wait_for_pending_acks_returns($this->_getPushTimeout());
+      }
+      catch(\Throwable $e)
+      {
+      }
+      try
+      {
+        $this->_channels[$connectionMode]->basic_cancel($this->_getConsumerId());
+      }
+      catch(\Throwable $e)
+      {
+      }
+      try
       {
         $this->_channels[$connectionMode]->close();
       }
-    }
-    catch(Exception $e)
-    {
+      catch(\Throwable $e)
+      {
+      }
     }
     $this->_channels[$connectionMode] = null;
 
     if($this->_heartbeatSender)
     {
-      $this->_heartbeatSender->unregister();
-      $this->_heartbeatSender = null;
+      try
+      {
+        $this->_heartbeatSender->unregister();
+      }
+      catch(\Throwable $e)
+      {
+      }
     }
-    try
+    $this->_heartbeatSender = null;
+
+    if((!empty($this->_connections[$connectionMode]))
+      && ($this->_connections[$connectionMode] instanceof AbstractConnection)
+    )
     {
-      if((!empty($this->_connections[$connectionMode]))
-        && ($this->_connections[$connectionMode] instanceof AbstractConnection)
-      )
+      try
       {
         $this->_connections[$connectionMode]->close();
       }
-    }
-    catch(Exception $e)
-    {
+      catch(\Throwable $e)
+      {
+      }
     }
     $this->_connections[$connectionMode] = null;
   }
