@@ -3,6 +3,7 @@ namespace Packaged\Queue\Provider\Amqp;
 
 use Exception;
 use Packaged\Helpers\ValueAs;
+use Packaged\Log\Log;
 use Packaged\Queue\IBatchQueueProvider;
 use Packaged\Queue\Provider\AbstractQueueProvider;
 use Packaged\Queue\Provider\QueueConnectionException;
@@ -155,7 +156,7 @@ class AmqpQueueProvider extends AbstractQueueProvider
 
         if($needDeclare)
         {
-          $this->_log("Auto-declaring exchange and queue");
+          Log::debug("Auto-declaring exchange and queue");
           $declareAttempts++;
           $this->declareExchange();
           $this->declareQueue();
@@ -226,10 +227,7 @@ class AmqpQueueProvider extends AbstractQueueProvider
       $duration = (microtime(true) - $startTime) * 1000;
       if($duration > $this->_slowPushThreshold)
       {
-        error_log(
-          'Slow push to queue ' . $this->_queueName . ' took '
-          . round($duration, 1) . 'ms'
-        );
+        Log::warning('Slow push to queue. took ' . round($duration, 1) . 'ms');
       }
     }
     return $this;
@@ -579,7 +577,7 @@ class AmqpQueueProvider extends AbstractQueueProvider
       }
       catch(Exception $e)
       {
-        $this->_log('AMQP host failed to connect [' . $e->getMessage() . '] (' . $host . ')');
+        Log::error('AMQP host failed to connect [' . $e->getMessage() . '] (' . $host . ')');
         array_shift($this->_hosts);
       }
       $this->_persistentDefault = ValueAs::bool($config->getItem('persistent', false));
@@ -597,7 +595,7 @@ class AmqpQueueProvider extends AbstractQueueProvider
     }
     catch(AMQPRuntimeException $e)
     {
-      $this->_log('Unable to start heartbeat sender. ' . $e->getMessage());
+      Log::error('Unable to start heartbeat sender. ' . $e->getMessage());
     }
 
     return $this->_connections[$connectionMode];
@@ -639,7 +637,7 @@ class AmqpQueueProvider extends AbstractQueueProvider
       }
       catch(Exception $e)
       {
-        $this->_log(
+        Log::error(
           'Error getting AMQP channel [' . $e->getMessage() . '] (' . $retries . ' retries remaining) '
         );
         $this->disconnect($connectionMode);

@@ -8,6 +8,7 @@ use Google\Cloud\PubSub\PubSubClient;
 use Google\Cloud\PubSub\Subscription;
 use Google\Cloud\PubSub\Topic;
 use Packaged\Helpers\ValueAs;
+use Packaged\Log\Log;
 use Packaged\Queue\IBatchQueueProvider;
 use Packaged\Queue\Provider\AbstractQueueProvider;
 use Packaged\Queue\Provider\QueueCredentialsException;
@@ -144,14 +145,14 @@ class GooglePubSubProvider extends AbstractQueueProvider implements IBatchQueueP
     {
       try
       {
-        $this->_log('Auto-creating subscription ' . $this->_getSubscription()->name());
+        Log::debug('Auto-creating subscription ' . $this->_getSubscription()->name());
         $this->_getSubscription()->create($subscriptionOpts);
       }
       catch(NotFoundException $e)
       {
         try
         {
-          $this->_log('Auto-creating topic ' . $this->_getTopic()->name());
+          Log::debug('Auto-creating topic ' . $this->_getTopic()->name());
           $this->_getTopic()->create();
         }
         catch(ConflictException $e)
@@ -162,7 +163,7 @@ class GooglePubSubProvider extends AbstractQueueProvider implements IBatchQueueP
           }
         }
 
-        $this->_log('Auto-creating subscription ' . $this->_getSubscription()->name() . " (second attempt)");
+        Log::debug('Auto-creating subscription ' . $this->_getSubscription()->name() . " (second attempt)");
         $this->_getSubscription()->create($subscriptionOpts);
       }
     }
