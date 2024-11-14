@@ -4,6 +4,7 @@ namespace Packaged\Queue\Provider;
 use Packaged\Config\ConfigSectionInterface;
 use Packaged\Config\ConfigurableInterface;
 use Packaged\Config\Provider\ConfigSection;
+use Packaged\Log\Log;
 use Packaged\Queue\IQueueProvider;
 
 abstract class AbstractQueueProvider
@@ -56,7 +57,7 @@ abstract class AbstractQueueProvider
    */
   public static function create($queueName)
   {
-    $object = new static;
+    $object = new static();
     $object->_queueName = $queueName;
     return $object;
   }
@@ -102,6 +103,6 @@ abstract class AbstractQueueProvider
 
   protected function _log($message)
   {
-    error_log('Queue (' . $this->_getQueueName() . '): ' . $message);
+    Log::debug('Queue (' . $this->_getQueueName() . '): ' . $message);
   }
 }
