@@ -23,7 +23,7 @@
     "google/cloud-pubsub": "Enables using queues in Google Cloud PubSub"
   },
   "require-dev": {
-    "phpunit/phpunit": "~4.8.0",
+    "phpunit/phpunit": "~8.0",
     "php-amqplib/php-amqplib": "~3.7.3",
     "google/cloud-pubsub": "~1.3.0"
   },
