@@ -4,8 +4,9 @@ namespace Packaged\Queue\Tests\Provider;
 use Packaged\Config\ConfigSectionInterface;
 use Packaged\Config\Provider\ConfigSection;
 use Packaged\Queue\Tests\Provider\Mock\AmqpMockProvider;
+use PHPUnit\Framework\TestCase;
 
-class AmqpTest extends \PHPUnit_Framework_TestCase
+class AmqpTest extends TestCase
 {
   protected function _getProvider(string $queue, ?string $exchange = null)
   {
