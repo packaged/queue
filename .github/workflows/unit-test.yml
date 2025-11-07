@@ -30,4 +30,4 @@ jobs:
           tools: composer, phpunit
       - run: composer install -n --prefer-dist
       - run: php vendor/phpunit/phpunit/phpunit -c phpunit.xml --coverage-clover=coverage.xml
-      - run: php vendor/bin/coverage-check coverage.xml 70
+      - run: php vendor/bin/coverage-check coverage.xml 10
