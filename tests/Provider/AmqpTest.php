@@ -49,12 +49,16 @@ class AmqpTest extends TestCase
 
     // heartbeat on a specific connection should not disconnect
     $q->push('heartbeat_test');
+    $checksBefore = $q->getHeartbeatCheckCount();
     $disconnectsBefore = $q->getDisconnectCount();
     $q->heartbeat(AmqpMockProvider::CONN_PUSH);
+    self::assertGreaterThan($checksBefore, $q->getHeartbeatCheckCount());
     self::assertEquals($disconnectsBefore, $q->getDisconnectCount());
 
     // heartbeat on all connections should not disconnect
+    $checksBefore = $q->getHeartbeatCheckCount();
     $q->heartbeat();
+    self::assertGreaterThan($checksBefore, $q->getHeartbeatCheckCount());
     self::assertEquals($disconnectsBefore, $q->getDisconnectCount());
   }
 
@@ -73,9 +77,11 @@ class AmqpTest extends TestCase
       $timeLeft = sleep($timeLeft);
     }
 
+    $checksBefore = $q->getHeartbeatCheckCount();
     $disconnectsBefore = $q->getDisconnectCount();
     $q->heartbeat(AmqpMockProvider::CONN_PUSH);
-    // should have disconnected due to missed heartbeat
+    // should have checked and disconnected due to missed heartbeat
+    self::assertGreaterThan($checksBefore, $q->getHeartbeatCheckCount());
     self::assertGreaterThan($disconnectsBefore, $q->getDisconnectCount());
   }
 
