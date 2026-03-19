@@ -40,6 +40,45 @@ class AmqpTest extends TestCase
     );
   }
 
+  public function testHeartbeat()
+  {
+    $q = $this->_getProvider('test_heartbeat_fn');
+    $q->declareExchange()
+      ->declareQueue()
+      ->bindQueue();
+
+    // heartbeat on a specific connection should not disconnect
+    $q->push('heartbeat_test');
+    $disconnectsBefore = $q->getDisconnectCount();
+    $q->heartbeat(AmqpMockProvider::CONN_PUSH);
+    self::assertEquals($disconnectsBefore, $q->getDisconnectCount());
+
+    // heartbeat on all connections should not disconnect
+    $q->heartbeat();
+    self::assertEquals($disconnectsBefore, $q->getDisconnectCount());
+  }
+
+  public function testHeartbeatAfterMissed()
+  {
+    $q = $this->_getProvider('test_heartbeat_missed')->unregisterHeartbeat();
+    $q->declareExchange()
+      ->declareQueue()
+      ->bindQueue();
+    $q->push('trigger');
+
+    // sleep past the heartbeat interval to cause a missed heartbeat
+    $timeLeft = (int)$q->config()->getItem('heartbeat') * 3;
+    while($timeLeft > 0)
+    {
+      $timeLeft = sleep($timeLeft);
+    }
+
+    $disconnectsBefore = $q->getDisconnectCount();
+    $q->heartbeat(AmqpMockProvider::CONN_PUSH);
+    // should have disconnected due to missed heartbeat
+    self::assertGreaterThan($disconnectsBefore, $q->getDisconnectCount());
+  }
+
   public function testAmqp()
   {
     $q = $this->_getProvider('test', 'testexchange');

@@ -892,4 +892,44 @@ class AmqpQueueProvider extends AbstractQueueProvider
     );
     return $this;
   }
+
+  /**
+   * Send a heartbeat on the given connection mode, or all active connections
+   *
+   * @param string|null $connectionMode One of CONN_PUSH, CONN_CONSUME, CONN_OTHER, or null for all
+   *
+   * @return $this
+   */
+  public function heartbeat($connectionMode = null)
+  {
+    if($connectionMode !== null)
+    {
+      $this->_heartbeat($connectionMode);
+    }
+    else
+    {
+      foreach(array_keys($this->_connections) as $mode)
+      {
+        $this->_heartbeat($mode);
+      }
+    }
+    return $this;
+  }
+
+  protected function _heartbeat($connectionMode)
+  {
+    if(!empty($this->_connections[$connectionMode])
+      && $this->_connections[$connectionMode]->isConnected()
+    )
+    {
+      try
+      {
+        $this->_connections[$connectionMode]->checkHeartBeat();
+      }
+      catch(AMQPHeartbeatMissedException $e)
+      {
+        $this->disconnect($connectionMode);
+      }
+    }
+  }
 }
