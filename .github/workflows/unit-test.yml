@@ -31,7 +31,6 @@ jobs:
       - uses: shivammathur/setup-php@v2
         with:
           php-version: ${{matrix.php}}
-          extensions: grpc
           coverage: xdebug
           tools: composer, phpunit
       - run: composer install -n --prefer-dist --no-security-blocking
