@@ -21,6 +21,14 @@ jobs:
         image: rabbitmq:${{matrix.rabbit}}-management
         ports:
           - 5672:5672
+      pubsub:
+        image: gcr.io/google.com/cloudsdktool/google-cloud-cli:emulators
+        ports:
+          - 8085:8085
+        options: >-
+          --entrypoint "gcloud beta emulators pubsub start --host-port=0.0.0.0:8085"
+        env:
+          CLOUDSDK_CORE_PROJECT: test-project
     steps:
       - uses: actions/checkout@v6
       - uses: shivammathur/setup-php@v2
@@ -30,4 +38,6 @@ jobs:
           tools: composer, phpunit
       - run: composer install -n --prefer-dist --no-security-blocking
       - run: php vendor/phpunit/phpunit/phpunit -c phpunit.xml --coverage-clover=coverage.xml
+        env:
+          PUBSUB_EMULATOR_HOST: localhost:8085
       - run: php vendor/bin/coverage-check coverage.xml 10
