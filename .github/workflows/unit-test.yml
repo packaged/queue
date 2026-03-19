@@ -22,12 +22,12 @@ jobs:
         ports:
           - 5672:5672
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v6
       - uses: shivammathur/setup-php@v2
         with:
           php-version: ${{matrix.php}}
           coverage: xdebug
           tools: composer, phpunit
-      - run: composer install -n --prefer-dist
+      - run: composer install -n --prefer-dist --no-security-blocking
       - run: php vendor/phpunit/phpunit/phpunit -c phpunit.xml --coverage-clover=coverage.xml
       - run: php vendor/bin/coverage-check coverage.xml 10
