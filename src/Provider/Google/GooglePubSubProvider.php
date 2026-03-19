@@ -64,6 +64,10 @@ class GooglePubSubProvider extends AbstractQueueProvider implements IBatchQueueP
       {
         $options['keyFile'] = $this->_loadCredentials($rawCreds);
       }
+      elseif(getenv('PUBSUB_EMULATOR_HOST'))
+      {
+        $options['credentials'] = new \Google\Auth\Credentials\InsecureCredentials();
+      }
       $this->_client = new PubSubClient($options);
     }
     return $this->_client;
