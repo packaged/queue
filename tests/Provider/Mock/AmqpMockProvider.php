@@ -8,6 +8,7 @@ class AmqpMockProvider extends AmqpQueueProvider
 {
   protected $_disconnectCount = 0;
   protected $_unregisterHeartbeat = false;
+  protected $_heartbeatCheckCount = 0;
 
   protected function _getConnection($connectionMode)
   {
@@ -32,6 +33,17 @@ class AmqpMockProvider extends AmqpQueueProvider
   public function getDisconnectCount()
   {
     return $this->_disconnectCount;
+  }
+
+  public function getHeartbeatCheckCount()
+  {
+    return $this->_heartbeatCheckCount;
+  }
+
+  protected function _heartbeat($connectionMode)
+  {
+    $this->_heartbeatCheckCount++;
+    parent::_heartbeat($connectionMode);
   }
 
   public function disconnect($connectionMode = null)

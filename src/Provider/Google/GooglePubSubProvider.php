@@ -64,6 +64,10 @@ class GooglePubSubProvider extends AbstractQueueProvider implements IBatchQueueP
       {
         $options['keyFile'] = $this->_loadCredentials($rawCreds);
       }
+      elseif(getenv('PUBSUB_EMULATOR_HOST'))
+      {
+        $options['credentials'] = new \Google\Auth\Credentials\InsecureCredentials();
+      }
       $this->_client = new PubSubClient($options);
     }
     return $this->_client;
@@ -157,7 +161,7 @@ class GooglePubSubProvider extends AbstractQueueProvider implements IBatchQueueP
         }
         catch(ConflictException $e)
         {
-          if($e->getCode() != 409)
+          if($e->getCode() != 409 && $e->getCode() != 6)
           {
             throw $e;
           }
@@ -169,7 +173,7 @@ class GooglePubSubProvider extends AbstractQueueProvider implements IBatchQueueP
     }
     catch(ConflictException $e)
     {
-      if($e->getCode() != 409)
+      if($e->getCode() != 409 && $e->getCode() != 6)
       {
         throw $e;
       }
@@ -216,7 +220,7 @@ class GooglePubSubProvider extends AbstractQueueProvider implements IBatchQueueP
     }
     catch(NotFoundException $e)
     {
-      if($this->_getAutoCreate() && ($e->getCode() == 404))
+      if($this->_getAutoCreate() && ($e->getCode() == 404 || $e->getCode() == 5))
       {
         $this->_createTopicAndSub();
         return $topic->publishBatch($messages);

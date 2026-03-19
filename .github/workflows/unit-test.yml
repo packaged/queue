@@ -22,6 +22,11 @@ jobs:
         ports:
           - 5672:5672
     steps:
+      - name: Start PubSub emulator
+        run: |
+          docker run -d -p 8085:8085 gcr.io/google.com/cloudsdktool/google-cloud-cli:emulators \
+            gcloud beta emulators pubsub start --host-port=0.0.0.0:8085
+          timeout 30 bash -c 'until curl -s http://localhost:8085 > /dev/null 2>&1; do sleep 1; done'
       - uses: actions/checkout@v6
       - uses: shivammathur/setup-php@v2
         with:
@@ -30,4 +35,6 @@ jobs:
           tools: composer, phpunit
       - run: composer install -n --prefer-dist --no-security-blocking
       - run: php vendor/phpunit/phpunit/phpunit -c phpunit.xml --coverage-clover=coverage.xml
+        env:
+          PUBSUB_EMULATOR_HOST: localhost:8085
       - run: php vendor/bin/coverage-check coverage.xml 10
