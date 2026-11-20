@@ -11,10 +11,8 @@ use Packaged\Queue\QueueException;
 use PhpAmqpLib\Channel\AMQPChannel;
 use PhpAmqpLib\Connection\AbstractConnection;
 use PhpAmqpLib\Connection\AMQPStreamConnection;
-use PhpAmqpLib\Connection\Heartbeat\PCNTLHeartbeatSender;
 use PhpAmqpLib\Exception\AMQPHeartbeatMissedException;
 use PhpAmqpLib\Exception\AMQPProtocolChannelException;
-use PhpAmqpLib\Exception\AMQPRuntimeException;
 use PhpAmqpLib\Exception\AMQPTimeoutException;
 use PhpAmqpLib\Message\AMQPMessage;
 use PhpAmqpLib\Wire\AMQPTable;
@@ -87,11 +85,6 @@ class AmqpQueueProvider extends AbstractQueueProvider
    * @var int
    */
   private $_slowPushThreshold = 0;
-
-  /**
-   * @var ?PCNTLHeartbeatSender
-   */
-  protected $_heartbeatSender;
 
   protected function _construct()
   {
@@ -582,20 +575,10 @@ class AmqpQueueProvider extends AbstractQueueProvider
       }
       $this->_persistentDefault = ValueAs::bool($config->getItem('persistent', false));
       $this->_lastConnectTimes[$connectionMode] = time();
-    }
-
-    try
-    {
-      if($this->_heartbeatSender)
+      if(!empty($this->_connections[$connectionMode]))
       {
-        $this->_heartbeatSender->unregister();
+        AmqpHeartbeat::register($this->_connections[$connectionMode]);
       }
-      $this->_heartbeatSender = new PCNTLHeartbeatSender($this->_connections[$connectionMode]);
-      $this->_heartbeatSender->register();
-    }
-    catch(AMQPRuntimeException $e)
-    {
-      Log::error('Unable to start heartbeat sender. ' . $e->getMessage());
     }
 
     return $this->_connections[$connectionMode];
@@ -709,22 +692,11 @@ class AmqpQueueProvider extends AbstractQueueProvider
     }
     $this->_channels[$connectionMode] = null;
 
-    if($this->_heartbeatSender)
-    {
-      try
-      {
-        $this->_heartbeatSender->unregister();
-      }
-      catch(\Throwable $e)
-      {
-      }
-    }
-    $this->_heartbeatSender = null;
-
     if((!empty($this->_connections[$connectionMode]))
       && ($this->_connections[$connectionMode] instanceof AbstractConnection)
     )
     {
+      AmqpHeartbeat::unregister($this->_connections[$connectionMode]);
       try
       {
         $this->_connections[$connectionMode]->close();
