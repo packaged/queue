@@ -171,6 +171,56 @@ class AmqpTest extends TestCase
     self::assertGreaterThan($disconnectsBefore, $q->getDisconnectCount());
   }
 
+  public function testDisconnectingOneModeKeepsTheOtherHeartbeating()
+  {
+    $q = $this->_getProvider('test_heartbeat_disconnect_one_mode');
+    $q->declareExchange()
+      ->declareQueue()
+      ->bindQueue()
+      ->push('open the push connection');
+    $q->getQueueInfo();
+    $q->disconnect(AmqpMockProvider::CONN_OTHER);
+
+    $this->_idlePastHeartbeatTimeout($q);
+
+    $this->_assertConnectionOpen($q, AmqpMockProvider::CONN_PUSH);
+  }
+
+  public function testConsumerCallbackPausedPastHeartbeatLeavesMessageForRedelivery()
+  {
+    $q = $this->_getProvider('test_heartbeat_paused_callback');
+    $q->declareExchange()
+      ->declareQueue()
+      ->bindQueue()
+      ->push('slow message');
+
+    $consumed = $q->consume(
+      function ($message, $deliveryTag) use ($q) {
+        // Hold SIGALRM through the pause, so the heartbeat handler first runs once the broker heartbeat is missed.
+        pcntl_sigprocmask(SIG_BLOCK, [SIGALRM]);
+        try
+        {
+          $this->_idlePastHeartbeatTimeout($q);
+        }
+        finally
+        {
+          pcntl_sigprocmask(SIG_UNBLOCK, [SIGALRM]);
+        }
+        $q->ack($deliveryTag);
+      }
+    );
+    self::assertFalse($consumed, 'consume() should report the batch as not consumed.');
+
+    $redelivered = null;
+    $q->consume(
+      function ($message, $deliveryTag) use ($q, &$redelivered) {
+        $redelivered = $message;
+        $q->ack($deliveryTag);
+      }
+    );
+    self::assertSame('slow message', $redelivered);
+  }
+
   public function testReleasedConsumerProviderIsCollected()
   {
     $q = $this->_getProvider('test_heartbeat_released_consumer');
