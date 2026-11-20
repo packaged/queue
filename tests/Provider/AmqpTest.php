@@ -119,6 +119,94 @@ class AmqpTest extends TestCase
     $this->_assertConnectionOpen($second, AmqpMockProvider::CONN_PUSH);
   }
 
+  public function testHeartbeatKeepsIdleConnectionAliveWhileOtherConnectionsChurn()
+  {
+    $idle = $this->_getProvider('test_heartbeat_idle_beside_churn');
+    $idle->declareExchange()
+      ->declareQueue()
+      ->bindQueue()
+      ->push('open the idle provider push connection');
+    $churn = $this->_getProvider('test_heartbeat_churn');
+    $churn->declareExchange()
+      ->declareQueue()
+      ->bindQueue();
+
+    // Open and close a connection every second, more often than the heartbeat interval.
+    $until = time() + (int)$idle->config()->getItem('heartbeat') * 3;
+    while(time() < $until)
+    {
+      $churn->push('churn');
+      $churn->disconnect();
+      $timeLeft = 1;
+      while($timeLeft > 0)
+      {
+        $timeLeft = sleep($timeLeft);
+      }
+    }
+
+    $this->_assertConnectionOpen($idle, AmqpMockProvider::CONN_PUSH);
+  }
+
+  public function testPushReconnectsAfterHeartbeatFailedDuringProcessPause()
+  {
+    $q = $this->_getProvider('test_heartbeat_after_pause');
+    $q->declareExchange()
+      ->declareQueue()
+      ->bindQueue()
+      ->push('before pause');
+
+    // Hold SIGALRM through the pause, so the heartbeat handler first runs once the broker heartbeat is already missed.
+    pcntl_sigprocmask(SIG_BLOCK, [SIGALRM]);
+    try
+    {
+      $this->_idlePastHeartbeatTimeout($q);
+    }
+    finally
+    {
+      pcntl_sigprocmask(SIG_UNBLOCK, [SIGALRM]);
+    }
+
+    $disconnectsBefore = $q->getDisconnectCount();
+    $q->push('after pause');
+    self::assertGreaterThan($disconnectsBefore, $q->getDisconnectCount());
+  }
+
+  public function testReleasedConsumerProviderIsCollected()
+  {
+    $q = $this->_getProvider('test_heartbeat_released_consumer');
+    $q->declareExchange()
+      ->declareQueue()
+      ->bindQueue()
+      ->push('consume me');
+    $q->consume(
+      function ($message, $deliveryTag) use ($q) {
+        $q->ack($deliveryTag);
+      }
+    );
+
+    $released = \WeakReference::create($q);
+    unset($q);
+    gc_collect_cycles();
+
+    self::assertNull($released->get(), 'The provider is still referenced after it was released.');
+  }
+
+  /**
+   * @runInSeparateProcess
+   * @preserveGlobalState disabled
+   */
+  public function testWithoutSignalsLeavesSigalrmAlone()
+  {
+    define('AMQP_WITHOUT_SIGNALS', true);
+    $q = $this->_getProvider('test_heartbeat_without_signals');
+    $q->declareExchange()
+      ->declareQueue()
+      ->bindQueue()
+      ->push('open a connection');
+
+    self::assertSame(SIG_DFL, pcntl_signal_get_handler(SIGALRM));
+  }
+
   /**
    * Sleep with no AMQP traffic for long enough that the broker closes any connection that sent no heartbeats.
    * SIGALRM interrupts sleep(), so keep sleeping for the remainder.
