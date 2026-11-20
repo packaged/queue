@@ -306,7 +306,24 @@ class AmqpQueueProvider extends AbstractQueueProvider
     {
       return false;
     }
+    if($this->_consumeHeartbeatFailed())
+    {
+      // The broker requeues the deliveries of the lost connection.
+      $this->disconnect(self::CONN_CONSUME);
+      return false;
+    }
     return true;
+  }
+
+  /**
+   * Whether a background heartbeat failed on the consume connection.
+   * Its delivery tags are void, so settling them on a new channel would ack or reject unrelated messages.
+   */
+  private function _consumeHeartbeatFailed(): bool
+  {
+    $connection = isset($this->_connections[self::CONN_CONSUME])
+      ? $this->_connections[self::CONN_CONSUME] : null;
+    return $connection instanceof AbstractConnection && AmqpHeartbeat::hasFailed($connection);
   }
 
   protected function _processBatchMessage($msg, $tag = null)
@@ -397,6 +414,10 @@ class AmqpQueueProvider extends AbstractQueueProvider
 
   public function ack($deliveryTag)
   {
+    if($this->_consumeHeartbeatFailed())
+    {
+      return;
+    }
     try
     {
       $this->_getChannel(self::CONN_CONSUME)
@@ -411,6 +432,10 @@ class AmqpQueueProvider extends AbstractQueueProvider
 
   public function nack($deliveryTag, $requeueFailures = false)
   {
+    if($this->_consumeHeartbeatFailed())
+    {
+      return;
+    }
     try
     {
       $this->_getChannel(self::CONN_CONSUME)
@@ -425,7 +450,7 @@ class AmqpQueueProvider extends AbstractQueueProvider
 
   public function batchAck(array $tagResults, $requeueFailures = false)
   {
-    if(count($tagResults) < 1)
+    if(count($tagResults) < 1 || $this->_consumeHeartbeatFailed())
     {
       return;
     }
