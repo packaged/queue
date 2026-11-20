@@ -186,6 +186,8 @@ class AmqpTest extends TestCase
 
     $released = \WeakReference::create($q);
     unset($q);
+    // The first collection runs the cycle's destructors; the second frees it.
+    gc_collect_cycles();
     gc_collect_cycles();
 
     self::assertNull($released->get(), 'The provider is still referenced after it was released.');
