@@ -85,6 +85,70 @@ class AmqpTest extends TestCase
     self::assertGreaterThan($disconnectsBefore, $q->getDisconnectCount());
   }
 
+  public function testHeartbeatKeepsEveryConnectionOfAProviderAlive()
+  {
+    $q = $this->_getProvider('test_heartbeat_all_modes');
+    $q->declareExchange()
+      ->declareQueue()
+      ->bindQueue();
+    $q->push('open the push connection');
+    $q->getQueueInfo();
+
+    $this->_idlePastHeartbeatTimeout($q);
+
+    $this->_assertConnectionOpen($q, AmqpMockProvider::CONN_PUSH);
+    $this->_assertConnectionOpen($q, AmqpMockProvider::CONN_OTHER);
+  }
+
+  public function testHeartbeatKeepsConnectionsOfEveryProviderAlive()
+  {
+    $first = $this->_getProvider('test_heartbeat_first_provider');
+    $first->declareExchange()
+      ->declareQueue()
+      ->bindQueue()
+      ->push('open the first provider push connection');
+    $second = $this->_getProvider('test_heartbeat_second_provider');
+    $second->declareExchange()
+      ->declareQueue()
+      ->bindQueue()
+      ->push('open the second provider push connection');
+
+    $this->_idlePastHeartbeatTimeout($first);
+
+    $this->_assertConnectionOpen($first, AmqpMockProvider::CONN_PUSH);
+    $this->_assertConnectionOpen($second, AmqpMockProvider::CONN_PUSH);
+  }
+
+  /**
+   * Sleep with no AMQP traffic for long enough that the broker closes any connection that sent no heartbeats.
+   * SIGALRM interrupts sleep(), so keep sleeping for the remainder.
+   */
+  private function _idlePastHeartbeatTimeout(AmqpMockProvider $q)
+  {
+    $timeLeft = (int)$q->config()->getItem('heartbeat') * 3;
+    while($timeLeft > 0)
+    {
+      $timeLeft = sleep($timeLeft);
+    }
+  }
+
+  private function _assertConnectionOpen(AmqpMockProvider $q, string $connectionMode)
+  {
+    try
+    {
+      // Opening a channel is a round trip, so it fails if the broker has closed the connection.
+      $q->getOpenConnection($connectionMode)->channel()->close();
+    }
+    catch(\Exception $e)
+    {
+      self::fail(sprintf(
+        'The %s connection stopped heartbeating while idle: %s: %s',
+        $connectionMode, get_class($e), $e->getMessage()
+      ));
+    }
+    $this->addToAssertionCount(1);
+  }
+
   public function testAmqp()
   {
     $q = $this->_getProvider('test', 'testexchange');

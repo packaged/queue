@@ -30,6 +30,14 @@ class AmqpMockProvider extends AmqpQueueProvider
     return $this;
   }
 
+  /**
+   * The connection already open for this mode, without reconnecting.
+   */
+  public function getOpenConnection($connectionMode)
+  {
+    return $this->_connections[$connectionMode];
+  }
+
   public function getDisconnectCount()
   {
     return $this->_disconnectCount;
