@@ -487,10 +487,14 @@ class AmqpQueueProvider extends AbstractQueueProvider
 
     $channel = isset($this->_channels[$connectionMode])
       ? $this->_channels[$connectionMode] : null;
+    $connection = isset($this->_connections[$connectionMode])
+      ? $this->_connections[$connectionMode] : null;
 
     // Disconnect if the channel exists but the connection is broken,
+    // if a background heartbeat on the connection failed,
     // or if the connection has been open for too long
-    if(($channel &&
+    if(($connection instanceof AbstractConnection && AmqpHeartbeat::hasFailed($connection))
+      || ($channel &&
         ((!$channel->getConnection())
           || (!$channel->getConnection()->isConnected())
         )

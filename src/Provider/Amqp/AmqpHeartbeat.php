@@ -8,15 +8,25 @@ use PhpAmqpLib\Connection\AbstractConnection;
  *
  * A process has a single SIGALRM handler, so one sender per connection would leave every
  * connection but the last registered without heartbeats.
+ *
+ * Connections are held by weak reference, so the registry never keeps a provider alive.
  */
 final class AmqpHeartbeat
 {
-  /** @var AbstractConnection[] keyed by spl_object_id */
+  /** @var \WeakReference[] keyed by spl_object_id */
   private static $_connections = [];
-  private static $_interval = 0;
+  /** @var bool[] connections whose heartbeat failed, keyed by spl_object_id */
+  private static $_failed = [];
+  private static $_handlerInstalled = false;
+  /** Unix time the pending alarm fires, or 0 when none is pending */
+  private static $_nextBeat = 0;
 
   public static function isSupported(): bool
   {
+    if(defined('AMQP_WITHOUT_SIGNALS') && AMQP_WITHOUT_SIGNALS)
+    {
+      return false;
+    }
     return function_exists('pcntl_async_signals')
       && function_exists('pcntl_signal')
       && function_exists('pcntl_alarm')
@@ -29,23 +39,34 @@ final class AmqpHeartbeat
     {
       return;
     }
-    self::$_connections[spl_object_id($connection)] = $connection;
-    self::_arm();
+    $id = spl_object_id($connection);
+    self::$_connections[$id] = \WeakReference::create($connection);
+    unset(self::$_failed[$id]);
+    self::_schedule();
   }
 
   public static function unregister(AbstractConnection $connection): void
   {
-    if(!isset(self::$_connections[spl_object_id($connection)]))
+    $id = spl_object_id($connection);
+    if(!self::_holds($id, $connection))
     {
       return;
     }
-    unset(self::$_connections[spl_object_id($connection)]);
-    self::_arm();
+    unset(self::$_connections[$id], self::$_failed[$id]);
+    if(!self::$_connections)
+    {
+      self::_cancel();
+    }
   }
 
-  public static function isRegistered(AbstractConnection $connection): bool
+  /**
+   * Whether a heartbeat on this connection failed in the signal handler.
+   * The connection is unusable, so its owner should disconnect and reconnect.
+   */
+  public static function hasFailed(AbstractConnection $connection): bool
   {
-    return isset(self::$_connections[spl_object_id($connection)]);
+    $id = spl_object_id($connection);
+    return isset(self::$_failed[$id]) && self::_holds($id, $connection);
   }
 
   /**
@@ -53,20 +74,21 @@ final class AmqpHeartbeat
    */
   public static function beat(): void
   {
-    foreach(self::$_connections as $id => $connection)
+    self::$_nextBeat = 0;
+    foreach(self::$_connections as $id => $reference)
     {
-      if(!$connection->isConnected())
+      $connection = $reference->get();
+      if($connection === null || !$connection->isConnected())
       {
-        unset(self::$_connections[$id]);
+        unset(self::$_connections[$id], self::$_failed[$id]);
         continue;
       }
       // A heartbeat frame written in the middle of another frame would corrupt the stream.
-      if($connection->isWriting())
+      if(isset(self::$_failed[$id]) || $connection->isWriting())
       {
         continue;
       }
-      $interval = (int)ceil($connection->getHeartbeat() / 2);
-      if(time() > $connection->getLastActivity() + $interval)
+      if(time() > $connection->getLastActivity() + self::_interval($connection))
       {
         try
         {
@@ -75,20 +97,40 @@ final class AmqpHeartbeat
         catch(\Throwable $e)
         {
           // Throwing here would unwind whatever code the signal interrupted.
-          // The connection's next read or write raises the failure where it can be handled.
-          unset(self::$_connections[$id]);
+          // The owning provider sees the failure on its next push or consume and reconnects.
+          self::$_failed[$id] = true;
         }
       }
     }
-    self::_arm();
+    self::_schedule();
   }
 
-  private static function _arm(): void
+  private static function _holds(int $id, AbstractConnection $connection): bool
+  {
+    return isset(self::$_connections[$id]) && self::$_connections[$id]->get() === $connection;
+  }
+
+  private static function _interval(AbstractConnection $connection): int
+  {
+    return (int)ceil($connection->getHeartbeat() / 2);
+  }
+
+  /**
+   * Arm the alarm for the shortest interval among live connections.
+   * A pending alarm is only ever brought forward, so registry changes cannot postpone it.
+   */
+  private static function _schedule(): void
   {
     $interval = 0;
-    foreach(self::$_connections as $connection)
+    foreach(self::$_connections as $id => $reference)
     {
-      $connectionInterval = (int)ceil($connection->getHeartbeat() / 2);
+      $connection = $reference->get();
+      if($connection === null)
+      {
+        unset(self::$_connections[$id], self::$_failed[$id]);
+        continue;
+      }
+      $connectionInterval = self::_interval($connection);
       if($interval === 0 || $connectionInterval < $interval)
       {
         $interval = $connectionInterval;
@@ -97,21 +139,33 @@ final class AmqpHeartbeat
 
     if($interval === 0)
     {
-      if(self::$_interval !== 0)
-      {
-        pcntl_alarm(0);
-        pcntl_signal(SIGALRM, SIG_IGN);
-        self::$_interval = 0;
-      }
+      self::_cancel();
       return;
     }
 
-    if(self::$_interval === 0)
+    if(!self::$_handlerInstalled)
     {
       pcntl_async_signals(true);
       pcntl_signal(SIGALRM, [self::class, 'beat'], true);
+      self::$_handlerInstalled = true;
     }
-    self::$_interval = $interval;
-    pcntl_alarm($interval);
+
+    $due = time() + $interval;
+    if(self::$_nextBeat === 0 || $due < self::$_nextBeat)
+    {
+      pcntl_alarm($interval);
+      self::$_nextBeat = $due;
+    }
+  }
+
+  private static function _cancel(): void
+  {
+    if(self::$_handlerInstalled)
+    {
+      pcntl_alarm(0);
+      pcntl_signal(SIGALRM, SIG_IGN);
+      self::$_handlerInstalled = false;
+    }
+    self::$_nextBeat = 0;
   }
 }
