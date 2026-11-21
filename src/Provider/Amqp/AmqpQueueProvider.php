@@ -721,6 +721,12 @@ class AmqpQueueProvider extends AbstractQueueProvider
     }
     $this->_channels[$connectionMode] = null;
 
+    if($connectionMode === self::CONN_CONSUME)
+    {
+      // Delivery tags belong to the lost channel. The broker requeues those deliveries.
+      $this->_batchData = [];
+    }
+
     if((!empty($this->_connections[$connectionMode]))
       && ($this->_connections[$connectionMode] instanceof AbstractConnection)
     )
