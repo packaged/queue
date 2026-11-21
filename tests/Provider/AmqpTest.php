@@ -26,12 +26,7 @@ class AmqpTest extends TestCase
     self::assertEquals(0, $q->getDisconnectCount());
     $q->consume(
       function ($msg, $tag) use ($q) {
-
-        $timeLeft = (int)$msg * 3;
-        while($timeLeft > 0)
-        {
-          $timeLeft = sleep($timeLeft);
-        }
+        self::_sleepFor((int)$msg * 3);
 
         $q->ack($tag);
         // expect one reconnect
@@ -71,11 +66,7 @@ class AmqpTest extends TestCase
     $q->push('trigger');
 
     // sleep past the heartbeat interval to cause a missed heartbeat
-    $timeLeft = (int)$q->config()->getItem('heartbeat') * 3;
-    while($timeLeft > 0)
-    {
-      $timeLeft = sleep($timeLeft);
-    }
+    $this->_idlePastHeartbeatTimeout($q);
 
     $checksBefore = $q->getHeartbeatCheckCount();
     $disconnectsBefore = $q->getDisconnectCount();
@@ -137,11 +128,7 @@ class AmqpTest extends TestCase
     {
       $churn->push('churn');
       $churn->disconnect();
-      $timeLeft = 1;
-      while($timeLeft > 0)
-      {
-        $timeLeft = sleep($timeLeft);
-      }
+      self::_sleepFor(1);
     }
 
     $this->_assertConnectionOpen($idle, AmqpMockProvider::CONN_PUSH);
@@ -228,14 +215,7 @@ class AmqpTest extends TestCase
     $q->declareExchange()
       ->declareQueue()
       ->bindQueue()
-      ->push('first');
-    // Use up delivery tag 1, so the lost delivery's tag differs from its redelivery's.
-    $q->consume(
-      function ($message, $deliveryTag) use ($q) {
-        $q->ack($deliveryTag);
-      }
-    );
-    $q->push('second');
+      ->push('second');
 
     $q->afterNextBatchMessage = function () use ($q) {
       // Hold SIGALRM through the pause, so the heartbeat handler first runs once the broker heartbeat is missed.
@@ -251,14 +231,14 @@ class AmqpTest extends TestCase
     };
 
     $batch = [];
-    $q->batchConsume(
-      function (array $messages) use (&$batch) {
-        $batch = $messages;
-      },
-      2
-    );
+    $collect = function (array $messages) use (&$batch) {
+      $batch = $messages;
+    };
+    $q->batchConsume($collect, 2);
+    self::assertSame([], $batch, 'The batch held a delivery from the lost connection.');
 
-    self::assertSame(['second'], array_values($batch), 'The batch should hold only the redelivery.');
+    $q->batchConsume($collect, 2);
+    self::assertSame(['second'], array_values($batch), 'The lost delivery should be redelivered.');
     $q->batchAck(array_fill_keys(array_keys($batch), true));
   }
 
@@ -302,14 +282,21 @@ class AmqpTest extends TestCase
 
   /**
    * Sleep with no AMQP traffic for long enough that the broker closes any connection that sent no heartbeats.
-   * SIGALRM interrupts sleep(), so keep sleeping for the remainder.
    */
   private function _idlePastHeartbeatTimeout(AmqpMockProvider $q)
   {
-    $timeLeft = (int)$q->config()->getItem('heartbeat') * 3;
-    while($timeLeft > 0)
+    self::_sleepFor((int)$q->config()->getItem('heartbeat') * 3);
+  }
+
+  /**
+   * Sleep for the full duration. SIGALRM from the heartbeat handler interrupts usleep(), so sleep to a deadline.
+   */
+  private static function _sleepFor(float $seconds)
+  {
+    $deadline = microtime(true) + $seconds;
+    while(($left = $deadline - microtime(true)) > 0)
     {
-      $timeLeft = sleep($timeLeft);
+      usleep((int)ceil(min($left, 1) * 1000000));
     }
   }
 
