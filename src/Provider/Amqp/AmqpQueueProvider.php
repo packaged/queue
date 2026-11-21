@@ -11,10 +11,8 @@ use Packaged\Queue\QueueException;
 use PhpAmqpLib\Channel\AMQPChannel;
 use PhpAmqpLib\Connection\AbstractConnection;
 use PhpAmqpLib\Connection\AMQPStreamConnection;
-use PhpAmqpLib\Connection\Heartbeat\PCNTLHeartbeatSender;
 use PhpAmqpLib\Exception\AMQPHeartbeatMissedException;
 use PhpAmqpLib\Exception\AMQPProtocolChannelException;
-use PhpAmqpLib\Exception\AMQPRuntimeException;
 use PhpAmqpLib\Exception\AMQPTimeoutException;
 use PhpAmqpLib\Message\AMQPMessage;
 use PhpAmqpLib\Wire\AMQPTable;
@@ -87,11 +85,6 @@ class AmqpQueueProvider extends AbstractQueueProvider
    * @var int
    */
   private $_slowPushThreshold = 0;
-
-  /**
-   * @var ?PCNTLHeartbeatSender
-   */
-  protected $_heartbeatSender;
 
   protected function _construct()
   {
@@ -313,7 +306,24 @@ class AmqpQueueProvider extends AbstractQueueProvider
     {
       return false;
     }
+    if($this->_consumeHeartbeatFailed())
+    {
+      // The broker requeues the deliveries of the lost connection.
+      $this->disconnect(self::CONN_CONSUME);
+      return false;
+    }
     return true;
+  }
+
+  /**
+   * Whether a background heartbeat failed on the consume connection.
+   * Its delivery tags are void, so settling them on a new channel would ack or reject unrelated messages.
+   */
+  private function _consumeHeartbeatFailed(): bool
+  {
+    $connection = isset($this->_connections[self::CONN_CONSUME])
+      ? $this->_connections[self::CONN_CONSUME] : null;
+    return $connection instanceof AbstractConnection && AmqpHeartbeat::hasFailed($connection);
   }
 
   protected function _processBatchMessage($msg, $tag = null)
@@ -404,6 +414,10 @@ class AmqpQueueProvider extends AbstractQueueProvider
 
   public function ack($deliveryTag)
   {
+    if($this->_consumeHeartbeatFailed())
+    {
+      return;
+    }
     try
     {
       $this->_getChannel(self::CONN_CONSUME)
@@ -418,6 +432,10 @@ class AmqpQueueProvider extends AbstractQueueProvider
 
   public function nack($deliveryTag, $requeueFailures = false)
   {
+    if($this->_consumeHeartbeatFailed())
+    {
+      return;
+    }
     try
     {
       $this->_getChannel(self::CONN_CONSUME)
@@ -432,7 +450,7 @@ class AmqpQueueProvider extends AbstractQueueProvider
 
   public function batchAck(array $tagResults, $requeueFailures = false)
   {
-    if(count($tagResults) < 1)
+    if(count($tagResults) < 1 || $this->_consumeHeartbeatFailed())
     {
       return;
     }
@@ -494,10 +512,14 @@ class AmqpQueueProvider extends AbstractQueueProvider
 
     $channel = isset($this->_channels[$connectionMode])
       ? $this->_channels[$connectionMode] : null;
+    $connection = isset($this->_connections[$connectionMode])
+      ? $this->_connections[$connectionMode] : null;
 
     // Disconnect if the channel exists but the connection is broken,
+    // if a background heartbeat on the connection failed,
     // or if the connection has been open for too long
-    if(($channel &&
+    if(($connection instanceof AbstractConnection && AmqpHeartbeat::hasFailed($connection))
+      || ($channel &&
         ((!$channel->getConnection())
           || (!$channel->getConnection()->isConnected())
         )
@@ -582,20 +604,10 @@ class AmqpQueueProvider extends AbstractQueueProvider
       }
       $this->_persistentDefault = ValueAs::bool($config->getItem('persistent', false));
       $this->_lastConnectTimes[$connectionMode] = time();
-    }
-
-    try
-    {
-      if($this->_heartbeatSender)
+      if(!empty($this->_connections[$connectionMode]))
       {
-        $this->_heartbeatSender->unregister();
+        AmqpHeartbeat::register($this->_connections[$connectionMode]);
       }
-      $this->_heartbeatSender = new PCNTLHeartbeatSender($this->_connections[$connectionMode]);
-      $this->_heartbeatSender->register();
-    }
-    catch(AMQPRuntimeException $e)
-    {
-      Log::error('Unable to start heartbeat sender. ' . $e->getMessage());
     }
 
     return $this->_connections[$connectionMode];
@@ -709,22 +721,17 @@ class AmqpQueueProvider extends AbstractQueueProvider
     }
     $this->_channels[$connectionMode] = null;
 
-    if($this->_heartbeatSender)
+    if($connectionMode === self::CONN_CONSUME)
     {
-      try
-      {
-        $this->_heartbeatSender->unregister();
-      }
-      catch(\Throwable $e)
-      {
-      }
+      // Delivery tags belong to the lost channel. The broker requeues those deliveries.
+      $this->_batchData = [];
     }
-    $this->_heartbeatSender = null;
 
     if((!empty($this->_connections[$connectionMode]))
       && ($this->_connections[$connectionMode] instanceof AbstractConnection)
     )
     {
+      AmqpHeartbeat::unregister($this->_connections[$connectionMode]);
       try
       {
         $this->_connections[$connectionMode]->close();

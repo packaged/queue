@@ -26,12 +26,7 @@ class AmqpTest extends TestCase
     self::assertEquals(0, $q->getDisconnectCount());
     $q->consume(
       function ($msg, $tag) use ($q) {
-
-        $timeLeft = (int)$msg * 3;
-        while($timeLeft > 0)
-        {
-          $timeLeft = sleep($timeLeft);
-        }
+        self::_sleepFor((int)$msg * 3);
 
         $q->ack($tag);
         // expect one reconnect
@@ -71,11 +66,7 @@ class AmqpTest extends TestCase
     $q->push('trigger');
 
     // sleep past the heartbeat interval to cause a missed heartbeat
-    $timeLeft = (int)$q->config()->getItem('heartbeat') * 3;
-    while($timeLeft > 0)
-    {
-      $timeLeft = sleep($timeLeft);
-    }
+    $this->_idlePastHeartbeatTimeout($q);
 
     $checksBefore = $q->getHeartbeatCheckCount();
     $disconnectsBefore = $q->getDisconnectCount();
@@ -83,6 +74,247 @@ class AmqpTest extends TestCase
     // should have checked and disconnected due to missed heartbeat
     self::assertGreaterThan($checksBefore, $q->getHeartbeatCheckCount());
     self::assertGreaterThan($disconnectsBefore, $q->getDisconnectCount());
+  }
+
+  public function testHeartbeatKeepsEveryConnectionOfAProviderAlive()
+  {
+    $q = $this->_getProvider('test_heartbeat_all_modes');
+    $q->declareExchange()
+      ->declareQueue()
+      ->bindQueue();
+    $q->push('open the push connection');
+    $q->getQueueInfo();
+
+    $this->_idlePastHeartbeatTimeout($q);
+
+    $this->_assertConnectionOpen($q, AmqpMockProvider::CONN_PUSH);
+    $this->_assertConnectionOpen($q, AmqpMockProvider::CONN_OTHER);
+  }
+
+  public function testHeartbeatKeepsConnectionsOfEveryProviderAlive()
+  {
+    $first = $this->_getProvider('test_heartbeat_first_provider');
+    $first->declareExchange()
+      ->declareQueue()
+      ->bindQueue()
+      ->push('open the first provider push connection');
+    $second = $this->_getProvider('test_heartbeat_second_provider');
+    $second->declareExchange()
+      ->declareQueue()
+      ->bindQueue()
+      ->push('open the second provider push connection');
+
+    $this->_idlePastHeartbeatTimeout($first);
+
+    $this->_assertConnectionOpen($first, AmqpMockProvider::CONN_PUSH);
+    $this->_assertConnectionOpen($second, AmqpMockProvider::CONN_PUSH);
+  }
+
+  public function testHeartbeatKeepsIdleConnectionAliveWhileOtherConnectionsChurn()
+  {
+    $idle = $this->_getProvider('test_heartbeat_idle_beside_churn');
+    $idle->declareExchange()
+      ->declareQueue()
+      ->bindQueue()
+      ->push('open the idle provider push connection');
+    $churn = $this->_getProvider('test_heartbeat_churn');
+    $churn->declareExchange()
+      ->declareQueue()
+      ->bindQueue();
+
+    // Open and close a connection every second, more often than the heartbeat interval.
+    $until = time() + (int)$idle->config()->getItem('heartbeat') * 3;
+    while(time() < $until)
+    {
+      $churn->push('churn');
+      $churn->disconnect();
+      self::_sleepFor(1);
+    }
+
+    $this->_assertConnectionOpen($idle, AmqpMockProvider::CONN_PUSH);
+  }
+
+  public function testPushReconnectsAfterHeartbeatFailedDuringProcessPause()
+  {
+    $q = $this->_getProvider('test_heartbeat_after_pause');
+    $q->declareExchange()
+      ->declareQueue()
+      ->bindQueue()
+      ->push('before pause');
+
+    // Hold SIGALRM through the pause, so the heartbeat handler first runs once the broker heartbeat is already missed.
+    pcntl_sigprocmask(SIG_BLOCK, [SIGALRM]);
+    try
+    {
+      $this->_idlePastHeartbeatTimeout($q);
+    }
+    finally
+    {
+      pcntl_sigprocmask(SIG_UNBLOCK, [SIGALRM]);
+    }
+
+    $disconnectsBefore = $q->getDisconnectCount();
+    $q->push('after pause');
+    self::assertGreaterThan($disconnectsBefore, $q->getDisconnectCount());
+  }
+
+  public function testDisconnectingOneModeKeepsTheOtherHeartbeating()
+  {
+    $q = $this->_getProvider('test_heartbeat_disconnect_one_mode');
+    $q->declareExchange()
+      ->declareQueue()
+      ->bindQueue()
+      ->push('open the push connection');
+    $q->getQueueInfo();
+    $q->disconnect(AmqpMockProvider::CONN_OTHER);
+
+    $this->_idlePastHeartbeatTimeout($q);
+
+    $this->_assertConnectionOpen($q, AmqpMockProvider::CONN_PUSH);
+  }
+
+  public function testConsumerCallbackPausedPastHeartbeatLeavesMessageForRedelivery()
+  {
+    $q = $this->_getProvider('test_heartbeat_paused_callback');
+    $q->declareExchange()
+      ->declareQueue()
+      ->bindQueue()
+      ->push('slow message');
+
+    $consumed = $q->consume(
+      function ($message, $deliveryTag) use ($q) {
+        // Hold SIGALRM through the pause, so the heartbeat handler first runs once the broker heartbeat is missed.
+        pcntl_sigprocmask(SIG_BLOCK, [SIGALRM]);
+        try
+        {
+          $this->_idlePastHeartbeatTimeout($q);
+        }
+        finally
+        {
+          pcntl_sigprocmask(SIG_UNBLOCK, [SIGALRM]);
+        }
+        $q->ack($deliveryTag);
+      }
+    );
+    self::assertFalse($consumed, 'consume() should report the batch as not consumed.');
+
+    $redelivered = null;
+    $q->consume(
+      function ($message, $deliveryTag) use ($q, &$redelivered) {
+        $redelivered = $message;
+        $q->ack($deliveryTag);
+      }
+    );
+    self::assertSame('slow message', $redelivered);
+  }
+
+  public function testBatchDropsDeliveriesFromAConsumeConnectionLostMidBatch()
+  {
+    $q = $this->_getProvider('test_heartbeat_batch_lost_connection');
+    $q->configure(new ConfigSection('', ['heartbeat' => 4, 'read_write_timeout' => 3, 'wait_time' => 2]));
+    $q->declareExchange()
+      ->declareQueue()
+      ->bindQueue()
+      ->push('second');
+
+    $q->afterNextBatchMessage = function () use ($q) {
+      // Hold SIGALRM through the pause, so the heartbeat handler first runs once the broker heartbeat is missed.
+      pcntl_sigprocmask(SIG_BLOCK, [SIGALRM]);
+      try
+      {
+        $this->_idlePastHeartbeatTimeout($q);
+      }
+      finally
+      {
+        pcntl_sigprocmask(SIG_UNBLOCK, [SIGALRM]);
+      }
+    };
+
+    $batch = [];
+    $collect = function (array $messages) use (&$batch) {
+      $batch = $messages;
+    };
+    $q->batchConsume($collect, 2);
+    self::assertSame([], $batch, 'The batch held a delivery from the lost connection.');
+
+    $q->batchConsume($collect, 2);
+    self::assertSame(['second'], array_values($batch), 'The lost delivery should be redelivered.');
+    $q->batchAck(array_fill_keys(array_keys($batch), true));
+  }
+
+  public function testReleasedConsumerProviderIsCollected()
+  {
+    $q = $this->_getProvider('test_heartbeat_released_consumer');
+    $q->declareExchange()
+      ->declareQueue()
+      ->bindQueue()
+      ->push('consume me');
+    $q->consume(
+      function ($message, $deliveryTag) use ($q) {
+        $q->ack($deliveryTag);
+      }
+    );
+
+    $released = \WeakReference::create($q);
+    unset($q);
+    // The first collection runs the cycle's destructors; the second frees it.
+    gc_collect_cycles();
+    gc_collect_cycles();
+
+    self::assertNull($released->get(), 'The provider is still referenced after it was released.');
+  }
+
+  /**
+   * @runInSeparateProcess
+   * @preserveGlobalState disabled
+   */
+  public function testWithoutSignalsLeavesSigalrmAlone()
+  {
+    define('AMQP_WITHOUT_SIGNALS', true);
+    $q = $this->_getProvider('test_heartbeat_without_signals');
+    $q->declareExchange()
+      ->declareQueue()
+      ->bindQueue()
+      ->push('open a connection');
+
+    self::assertSame(SIG_DFL, pcntl_signal_get_handler(SIGALRM));
+  }
+
+  /**
+   * Sleep with no AMQP traffic for long enough that the broker closes any connection that sent no heartbeats.
+   */
+  private function _idlePastHeartbeatTimeout(AmqpMockProvider $q)
+  {
+    self::_sleepFor((int)$q->config()->getItem('heartbeat') * 3);
+  }
+
+  /**
+   * Sleep for the full duration. SIGALRM from the heartbeat handler interrupts usleep(), so sleep to a deadline.
+   */
+  private static function _sleepFor(float $seconds)
+  {
+    $deadline = microtime(true) + $seconds;
+    while(($left = $deadline - microtime(true)) > 0)
+    {
+      usleep((int)ceil(min($left, 1) * 1000000));
+    }
+  }
+
+  private function _assertConnectionOpen(AmqpMockProvider $q, string $connectionMode)
+  {
+    try
+    {
+      // Opening a channel is a round trip, so it fails if the broker has closed the connection.
+      $q->getOpenConnection($connectionMode)->channel()->close();
+    }
+    catch(\Exception $e)
+    {
+      self::fail(sprintf(
+        'The %s connection stopped heartbeating while idle: %s: %s',
+        $connectionMode, get_class($e), $e->getMessage()
+      ));
+    }
+    $this->addToAssertionCount(1);
   }
 
   public function testAmqp()
