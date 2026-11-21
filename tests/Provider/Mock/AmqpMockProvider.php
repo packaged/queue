@@ -35,6 +35,24 @@ class AmqpMockProvider extends AmqpQueueProvider
   }
 
   /**
+   * Runs once, after the next message is added to a batch.
+   *
+   * @var callable|null
+   */
+  public $afterNextBatchMessage;
+
+  protected function _processBatchMessage($msg, $tag = null)
+  {
+    parent::_processBatchMessage($msg, $tag);
+    if($this->afterNextBatchMessage)
+    {
+      $hook = $this->afterNextBatchMessage;
+      $this->afterNextBatchMessage = null;
+      $hook();
+    }
+  }
+
+  /**
    * The connection already open for this mode, without reconnecting.
    */
   public function getOpenConnection($connectionMode)

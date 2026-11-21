@@ -221,6 +221,47 @@ class AmqpTest extends TestCase
     self::assertSame('slow message', $redelivered);
   }
 
+  public function testBatchDropsDeliveriesFromAConsumeConnectionLostMidBatch()
+  {
+    $q = $this->_getProvider('test_heartbeat_batch_lost_connection');
+    $q->configure(new ConfigSection('', ['heartbeat' => 4, 'read_write_timeout' => 3, 'wait_time' => 2]));
+    $q->declareExchange()
+      ->declareQueue()
+      ->bindQueue()
+      ->push('first');
+    // Use up delivery tag 1, so the lost delivery's tag differs from its redelivery's.
+    $q->consume(
+      function ($message, $deliveryTag) use ($q) {
+        $q->ack($deliveryTag);
+      }
+    );
+    $q->push('second');
+
+    $q->afterNextBatchMessage = function () use ($q) {
+      // Hold SIGALRM through the pause, so the heartbeat handler first runs once the broker heartbeat is missed.
+      pcntl_sigprocmask(SIG_BLOCK, [SIGALRM]);
+      try
+      {
+        $this->_idlePastHeartbeatTimeout($q);
+      }
+      finally
+      {
+        pcntl_sigprocmask(SIG_UNBLOCK, [SIGALRM]);
+      }
+    };
+
+    $batch = [];
+    $q->batchConsume(
+      function (array $messages) use (&$batch) {
+        $batch = $messages;
+      },
+      2
+    );
+
+    self::assertSame(['second'], array_values($batch), 'The batch should hold only the redelivery.');
+    $q->batchAck(array_fill_keys(array_keys($batch), true));
+  }
+
   public function testReleasedConsumerProviderIsCollected()
   {
     $q = $this->_getProvider('test_heartbeat_released_consumer');
