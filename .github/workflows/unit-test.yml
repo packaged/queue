@@ -37,4 +37,5 @@ jobs:
       - run: php vendor/phpunit/phpunit/phpunit -c phpunit.xml --coverage-clover=coverage.xml
         env:
           PUBSUB_EMULATOR_HOST: localhost:8085
+          RABBIT_CONTAINER: ${{ job.services.rabbit.id }}
       - run: php vendor/bin/coverage-check coverage.xml 10

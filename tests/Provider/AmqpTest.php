@@ -4,6 +4,9 @@ namespace Packaged\Queue\Tests\Provider;
 use Packaged\Config\ConfigSectionInterface;
 use Packaged\Config\Provider\ConfigSection;
 use Packaged\Queue\Tests\Provider\Mock\AmqpMockProvider;
+use PhpAmqpLib\Exception\AMQPConnectionBlockedException;
+use PhpAmqpLib\Exception\AMQPTimeoutException;
+use PhpAmqpLib\Message\AMQPMessage;
 use PHPUnit\Framework\TestCase;
 
 class AmqpTest extends TestCase
@@ -315,6 +318,178 @@ class AmqpTest extends TestCase
       ));
     }
     $this->addToAssertionCount(1);
+  }
+
+  public function testPushWithoutBlockedWaitFailsWhileBrokerBlocksPublishers()
+  {
+    $q = $this->_getBlockableProvider('test_blocked_no_wait', 0);
+    try
+    {
+      $this->_blockPublishers($q);
+      $this->expectException(AMQPConnectionBlockedException::class);
+      $q->push('during alarm');
+    }
+    finally
+    {
+      $this->_unblockPublishers();
+    }
+  }
+
+  public function testPushAfterBrokerUnblocksPublishersSucceedsWithoutBlockedWait()
+  {
+    $q = $this->_getBlockableProvider('test_blocked_then_unblocked', 0);
+    try
+    {
+      $this->_blockPublishers($q);
+      $this->_unblockPublishers();
+      // connection.unblocked is now waiting on the socket, unread.
+      sleep(1);
+      $q->push('after alarm');
+      self::assertFalse($q->getOpenConnection(AmqpMockProvider::CONN_PUSH)->isBlocked());
+    }
+    finally
+    {
+      $this->_unblockPublishers();
+    }
+  }
+
+  public function testPushWaitsForBrokerToUnblockPublishers()
+  {
+    $q = $this->_getBlockableProvider('test_blocked_wait', 20);
+    try
+    {
+      $this->_blockPublishers($q);
+      $this->_unblockPublishersAfter(3);
+      $start = microtime(true);
+      $q->push('during alarm');
+      self::assertGreaterThanOrEqual(2, microtime(true) - $start, 'The push did not wait for the broker to unblock.');
+    }
+    finally
+    {
+      $this->_unblockPublishers();
+    }
+  }
+
+  public function testPushGivesUpWhenStillBlockedAfterBlockedWait()
+  {
+    $q = $this->_getBlockableProvider('test_blocked_wait_expires', 2);
+    $start = microtime(true);
+    try
+    {
+      $this->_blockPublishers($q);
+      $start = microtime(true);
+      $q->push('during alarm');
+      self::fail('The push should fail once blocked_wait has passed.');
+    }
+    catch(AMQPConnectionBlockedException $e)
+    {
+      self::assertGreaterThanOrEqual(2, microtime(true) - $start, 'The push failed before blocked_wait passed.');
+    }
+    finally
+    {
+      $this->_unblockPublishers();
+    }
+  }
+
+  public function testWaitWhileBlockedReturnsFalseWhenStillBlocked()
+  {
+    $q = $this->_getBlockableProvider('test_blocked_wait_method_expires', 0);
+    try
+    {
+      $this->_blockPublishers($q);
+      $start = microtime(true);
+      self::assertFalse($q->waitWhileBlocked(AmqpMockProvider::CONN_PUSH, 2));
+      self::assertGreaterThanOrEqual(2, microtime(true) - $start);
+    }
+    finally
+    {
+      $this->_unblockPublishers();
+    }
+  }
+
+  public function testWaitWhileBlockedReturnsOnceBrokerUnblocksPublishers()
+  {
+    $q = $this->_getBlockableProvider('test_blocked_wait_method', 0);
+    try
+    {
+      $this->_blockPublishers($q);
+      $this->_unblockPublishersAfter(3);
+      self::assertTrue($q->waitWhileBlocked(AmqpMockProvider::CONN_PUSH, 20));
+      self::assertFalse($q->getOpenConnection(AmqpMockProvider::CONN_PUSH)->isBlocked());
+    }
+    finally
+    {
+      $this->_unblockPublishers();
+    }
+  }
+
+  private function _getBlockableProvider(string $queue, float $blockedWait): AmqpMockProvider
+  {
+    if(!getenv('RABBIT_CONTAINER'))
+    {
+      self::markTestSkipped('Set RABBIT_CONTAINER to the RabbitMQ container, so the test can raise a memory alarm.');
+    }
+    $q = $this->_getProvider($queue);
+    $q->configure(
+      new ConfigSection(
+        '', ['heartbeat' => 4, 'read_write_timeout' => 3, 'publish_confirm' => true, 'blocked_wait' => $blockedWait]
+      )
+    );
+    $q->declareExchange()
+      ->declareQueue()
+      ->bindQueue()
+      ->push('open the push connection');
+    return $q;
+  }
+
+  /**
+   * Raise a memory alarm, publish once so the broker blocks the push connection,
+   * and read frames until the client has received connection.blocked.
+   */
+  private function _blockPublishers(AmqpMockProvider $q)
+  {
+    $this->_rabbitmqctl('set_vm_memory_high_watermark', '0.0000001');
+    $connection = $q->getOpenConnection(AmqpMockProvider::CONN_PUSH);
+    $connection->channel()->basic_publish(new AMQPMessage('trigger the block'), '', 'test_blocked_unrouted');
+    $deadline = microtime(true) + 15;
+    while(!$connection->isBlocked() && microtime(true) < $deadline)
+    {
+      try
+      {
+        $connection->wait(null, false, 1);
+      }
+      catch(AMQPTimeoutException $e)
+      {
+      }
+    }
+    self::assertTrue($connection->isBlocked(), 'The broker did not block the push connection.');
+  }
+
+  private function _unblockPublishers()
+  {
+    $this->_rabbitmqctl('set_vm_memory_high_watermark', '0.6');
+  }
+
+  private function _unblockPublishersAfter(int $seconds)
+  {
+    exec(sprintf(
+      '(sleep %d; docker exec %s rabbitmqctl set_vm_memory_high_watermark 0.6) > /dev/null 2>&1 &',
+      $seconds, escapeshellarg(getenv('RABBIT_CONTAINER'))
+    ));
+  }
+
+  private function _rabbitmqctl(string ...$args)
+  {
+    exec(
+      'docker exec ' . escapeshellarg(getenv('RABBIT_CONTAINER')) . ' rabbitmqctl '
+      . implode(' ', array_map('escapeshellarg', $args)) . ' 2>&1',
+      $output,
+      $code
+    );
+    if($code !== 0)
+    {
+      self::fail('rabbitmqctl ' . implode(' ', $args) . ' failed: ' . implode("\n", $output));
+    }
   }
 
   public function testAmqp()
