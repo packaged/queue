@@ -146,6 +146,8 @@ class AmqpQueueProvider extends AbstractQueueProvider
 
         $this->_refreshConnection(self::CONN_PUSH);
         $ch = $this->_getChannel(self::CONN_PUSH);
+        // A publish on a still-blocked connection throws AMQPConnectionBlockedException.
+        $this->waitWhileBlocked(self::CONN_PUSH, $this->_getBlockedWait());
 
         if($needDeclare)
         {
@@ -207,6 +209,51 @@ class AmqpQueueProvider extends AbstractQueueProvider
       }
     }
     return $this;
+  }
+
+  /**
+   * Wait up to $timeout seconds for the broker to unblock publishing on a connection.
+   *
+   * The client only learns the broker has unblocked publishers by reading connection.unblocked,
+   * so this reads the connection while it waits. A timeout of 0 reads only frames already received.
+   *
+   * @return bool whether publishing on the connection is unblocked
+   */
+  public function waitWhileBlocked($connectionMode, float $timeout): bool
+  {
+    $connection = isset($this->_connections[$connectionMode]) ? $this->_connections[$connectionMode] : null;
+    if(!$connection instanceof AbstractConnection || !$connection->isBlocked())
+    {
+      return true;
+    }
+
+    $deadline = microtime(true) + max(0, $timeout);
+    do
+    {
+      $left = $deadline - microtime(true);
+      try
+      {
+        if($left > 0)
+        {
+          $connection->wait(null, false, min(1, $left));
+        }
+        else
+        {
+          $connection->wait(null, true);
+        }
+      }
+      catch(AMQPTimeoutException $e)
+      {
+      }
+    }
+    while($connection->isBlocked() && microtime(true) < $deadline);
+
+    return !$connection->isBlocked();
+  }
+
+  protected function _getBlockedWait(): float
+  {
+    return (float)$this->config()->getItem('blocked_wait', 0);
   }
 
   public function push($data, $persistent = null)
