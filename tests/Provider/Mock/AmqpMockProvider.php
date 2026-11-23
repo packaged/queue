@@ -2,6 +2,7 @@
 
 namespace Packaged\Queue\Tests\Provider\Mock;
 
+use Packaged\Queue\Provider\Amqp\AmqpHeartbeat;
 use Packaged\Queue\Provider\Amqp\AmqpQueueProvider;
 
 class AmqpMockProvider extends AmqpQueueProvider
@@ -13,9 +14,9 @@ class AmqpMockProvider extends AmqpQueueProvider
   protected function _getConnection($connectionMode)
   {
     $conn = parent::_getConnection($connectionMode);
-    if($this->_unregisterHeartbeat && $this->_heartbeatSender)
+    if($this->_unregisterHeartbeat)
     {
-      $this->_heartbeatSender->unregister();
+      AmqpHeartbeat::unregister($conn);
     }
     return $conn;
   }
@@ -23,11 +24,40 @@ class AmqpMockProvider extends AmqpQueueProvider
   public function unregisterHeartbeat()
   {
     $this->_unregisterHeartbeat = true;
-    if($this->_unregisterHeartbeat && $this->_heartbeatSender)
+    foreach($this->_connections as $conn)
     {
-      $this->_heartbeatSender->unregister();
+      if($conn)
+      {
+        AmqpHeartbeat::unregister($conn);
+      }
     }
     return $this;
+  }
+
+  /**
+   * Runs once, after the next message is added to a batch.
+   *
+   * @var callable|null
+   */
+  public $afterNextBatchMessage;
+
+  protected function _processBatchMessage($msg, $tag = null)
+  {
+    parent::_processBatchMessage($msg, $tag);
+    if($this->afterNextBatchMessage)
+    {
+      $hook = $this->afterNextBatchMessage;
+      $this->afterNextBatchMessage = null;
+      $hook();
+    }
+  }
+
+  /**
+   * The connection already open for this mode, without reconnecting.
+   */
+  public function getOpenConnection($connectionMode)
+  {
+    return $this->_connections[$connectionMode];
   }
 
   public function getDisconnectCount()
